@@ -933,9 +933,13 @@ def step_translate(pkg, work, xlate, iosout, tid, force=False):
     run([PY, nometal, GFX / 'dmsh_build.py', pkg, work / 'shader' / 'cache'],
         env={'IOSOUT': iosout, 'XLATE': xlate, 'WORK': work, 'J': os.environ.get('J', '8'), 'DM_GAME': tid},
         log=work / 'logs' / 'shaders.log', what='translating shaders to Metal source')
-    n = len(list(iosout.glob('b-*/*_b.metallib'))) if iosout.is_dir() else 0
+    # Report per directory: a work folder that survived an interrupted run holds one b-<V> per chain version, and the
+    # sum of them reads as a healthy build while the directory that gets shipped holds a handful.
+    libs = sorted((p for p in iosout.glob('b-*') if p.is_dir()), key=lambda d: (d.stat().st_mtime, d.name)) if iosout.is_dir() else []
+    counts = [(d.name, len(list(d.glob('*_b.metallib')))) for d in libs]
+    n = sum(c for _, c in counts)
     if not n: die('no shader libraries were produced (see %s)' % (work / 'logs' / 'shaders.log'))
-    say('%d shader libraries' % n)
+    say('%d shader libraries%s' % (n, '' if len(counts) < 2 else ': ' + ', '.join('%s %d' % c for c in counts)))
 
 
 def step_guest(patched, mods, stage):
@@ -1462,10 +1466,37 @@ def main():
         xlate = next((c for c in cands if c.is_file()), None)
         if not xlate: die('no shader translator: pass --tools <folder> with dmsh_xlate, or build it with dotnet publish')
         step_translate(pkg_dir, work, xlate, iosout, tid, a.force)
-        libs = sorted(p for p in iosout.glob('b-*') if p.is_dir()) if iosout.is_dir() else []
+        libs = sorted((p for p in iosout.glob('b-*') if p.is_dir()), key=lambda d: (d.stat().st_mtime, d.name)) \
+            if iosout.is_dir() else []
         if not libs: die('no shader library directory under %s' % iosout)
-        msl_out = libs[-1]
-        say('shader libraries: %s (%d)' % (msl_out.name, len(list(msl_out.glob('*_b.metallib')))))
+        # Which directory to ship is not a matter of name order. The chain version moves whenever one of the files it
+        # hashes changes (our own dmsh_build.py patch did, between two runs tonight), so a work folder that survived
+        # earlier runs holds one b-<V> per run, and an earlier one can still be sitting there with a full set while the
+        # current run's holds the 136 shaders it got to before it died. Only a full build stamps its directory
+        # (inputs.tsv, written last), and c1_full.tsv / cb_extent.tsv name that stamp in their header, so take the
+        # newest stamped one; the app rejects both tables outright when the stamp is missing.
+        stamped = [d for d in libs if (d / 'inputs.tsv').is_file()]
+        msl_out = (stamped or libs)[-1]
+        if len(libs) > 1:
+            warn('%s holds %d shader library directories (%s): shipping %s'
+                 % (iosout, len(libs), ', '.join(d.name for d in libs), msl_out.name))
+        # A short library is the failure that only shows up on the phone (every missing shader prints [RED] and draws
+        # nothing, with the sound still playing), so check it against the shader map the app will get before packing.
+        want = set()
+        smap = gdir / 'shader_map.tsv'
+        if not smap.is_file(): smap = work / 'shader' / 'tables' / 'shader_map.tsv'
+        if smap.is_file():
+            for line in smap.read_text(errors='replace').splitlines():
+                c = line.split('\t')
+                # the file opens with a column-title row ("package index stage dm_ctl_sha16 source") that is not a
+                # comment, so the key has to look like one: 16 hex digits
+                if len(c) >= 4 and re.fullmatch(r'[0-9a-f]{16}', c[3]): want.add(c[3])
+        have = len(list(msl_out.glob('*_b.metallib')))
+        if want and have < len(want):
+            die('%s has %d shader libraries but shader_map.tsv lists %d shaders: %d would draw nothing on the phone. '
+                'Delete %s and pack again (a directory left by an interrupted run is the usual cause)'
+                % (msl_out.name, have, len(want), len(want) - have, work))
+        say('shader libraries: %s (%d of %d shaders)' % (msl_out.name, have, len(want) or have))
     if a.stop_after == 'guest': return say('stopped before assembly')
 
     stage = work / 'stage'
