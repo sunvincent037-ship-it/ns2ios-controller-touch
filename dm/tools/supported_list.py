@@ -60,11 +60,16 @@ def read_games(games_dir):
         features = []
         if one(rows, 'fps_target') == '60': features.append('60 fps')
         if one(rows, 'op_mode').lower() == 'handheld': features.append('handheld')
-        # A game whose shaders sit inside an Oodle- or LZ5-compressed container needs one run on a Mac before it can be packed
-        # at all: only the game's own decoder unpacks those archives (shader_split.py oodle(), dm/host/hle_oodle.c). Said here
-        # rather than inferred from the profile's prose, because a game can mention Oodle for other assets and still pack fine
-        # (Shin Megami Tensei V keeps its shader records inline in Oodle-compressed pak blocks).
-        if one(rows, 'needs_mac_shaders'): features.append('需 Mac 一次')
+        # A game whose shaders sit inside an Oodle- or LZ5-compressed container cannot be packed at all yet: only the game's own
+        # decoder unpacks those archives (shader_split.py oodle(), dm/host/hle_oodle.c), and that decoder is arm64 code the Mac
+        # host runs natively. Said here rather than inferred from the profile's prose, because a game can mention Oodle for other
+        # assets and still pack fine (Shin Megami Tensei V keeps its shader records inline in Oodle-compressed pak blocks).
+        if one(rows, 'needs_mac_shaders'): features.append('暂不支持')
+        # A Vulkan profile that carries vk_capture.tsv is one whose shaders exist only while the game runs, so the packer
+        # needs one capture from the phone before it can build a playable package -- still supported, and no Mac is
+        # involved. gl_capture.tsv is not a signal: Balatro carries one as the yardstick for the LÖVE prebuilt route,
+        # which produces the same shaders offline and needs no capture at all.
+        if (d / 'vk_capture.tsv').is_file(): features.append('需抓一次')
         games.append({
             'tid': d.name,
             'name': one(rows, 'name') or d.name,
@@ -86,9 +91,14 @@ def render_md(games):
          '- **内存**：iOS 给不带 entitlement 的应用约 3.4 GB；本项目的壳在构建时已请求提高上限，'
          '侧载工具保留该权限后可用到 6–8 GB。',
          '- 表内是本仓库带参数、并且打包器跟随其快照验证过的游戏。**不在表内**的游戏，打包器会尝试从上游取它的参数并尽力打包（未经本仓库验证，可能跑不起来），不会产出半成品 IPA。',
-         '- **标着「需 Mac 一次」的游戏**：着色器压在 Oodle / LZ5 容器里（Trinity 包、PlatinumGames PKZ、旧式 Unreal pak），'
-         '只有游戏自己的解码器能解，而它必须跑在 Mac 主机里。这几款**在 Windows 上打不了**——打包器会在拆着色器那步停下并说明，'
-         '流程见 `docs/CAPTURE.md`。' + ('' if any('需 Mac 一次' in g['features'] for g in games) else '（当前没有。）'), '',
+         '- **标着「暂不支持」的游戏**：着色器压在 Oodle / LZ5 容器里（Trinity 包、PlatinumGames PKZ、旧式 Unreal pak），'
+         '只有游戏自己的解码器能解，而那段代码是 Switch 的 arm64 机器码，只能在 Apple Silicon（M 系列）的 Mac 上跑。'
+         '**当前版本的打包器没有这条通路**，所以这几款在 Windows、Linux、macOS 上都会失败——它会在拆着色器那步停下并说明，'
+         '不会产出装上去却画不出东西的半成品。详见 README 的「现在打不了的游戏（5 款）」。'
+         + ('' if any('暂不支持' in g['features'] for g in games) else '（当前没有。）'),
+         '- **标着「需抓一次」的游戏**：着色器只在游戏跑起来时才生成，没有文件可拆。先用手机装一个不带画面的包抓一次，'
+         '再打第二遍——**不需要 Mac**，Windows + 手机就够。步骤见 `docs/CAPTURE.zh-CN.md`。'
+         + ('' if any('需抓一次' in g['features'] for g in games) else '（当前没有。）'), '',
          '| 游戏 | Title ID | 已验证版本 | 特性 |',
          '|---|---|---|---|']
     for g in games:

@@ -155,7 +155,7 @@ written by the packer into the app's `dm/env.txt` and read by the host at startu
 
 ### Games that build their shaders at run time
 
-The packer works from the game's own files, and two kinds of game keep their shaders somewhere else.
+The packer works from the game's own files; a few kinds of game keep their shaders somewhere else.
 
 **A LÖVE game just packs and plays.** LÖVE carries its shader wrapper as plain Lua inside the binary, so
 `dm/gfx/tools/gl_prebuilt.py` runs that wrapper instead of the game: handed the `resources/shaders/*.fs` files it produces
@@ -163,13 +163,46 @@ the exact GLSL the game would compile at run time — the hashes match, because 
 `nxn_pack.py` does this by itself: nothing to install, nothing to run first. (Balatro's 19 `.fs` files come out as 35
 shaders; that is the mechanism, not a step you perform.)
 
-**Two games need one capture: Super Mario Galaxy 1 and 2.** Their shaders are not programs in a file; they are what a
-GameCube/Wii GX pipeline configuration *becomes*, computed inside Hagi (a C++ shader compiler compiled to machine code) from
-`pipelineDB.pip`. There is nothing readable to run on a PC, and rewriting that compiler is a different project. Collecting
-them takes about a minute per game.
+### Games that need one capture (**no Mac involved**)
 
-Why, and the three steps: **[docs/CAPTURE.md](docs/CAPTURE.md)** ([中文](docs/CAPTURE.zh-CN.md)). Every other game on the
-supported list packs and plays from its own files.
+A few games cannot be packed in one go: they need one run of the game on the phone first, to collect the shaders it
+builds at run time, and then a second pack. **All of that happens on Windows plus the phone — no Mac** — it just costs one
+extra install and a minute of play.
+
+- **Super Mario Galaxy 1 and 2** (`010099C022B96000` / `0100FD8022DAA000`, about a minute each): their shaders are not
+  programs in a file; they are what a GameCube/Wii GX pipeline configuration *becomes*, computed inside Hagi (a C++
+  shader compiler compiled to machine code) from `pipelineDB.pip`. There is nothing readable to run on a PC. Three steps:
+  pack with `--no-shaders`, install it, put `DM_VK_CAPTURE=vkcap` in `Documents/env.txt` and run the game once, then pack
+  again with `--vk-capture`. Details: **[docs/CAPTURE.md](docs/CAPTURE.md)** ([中文](docs/CAPTURE.zh-CN.md)).
+- **An OpenGL game that is not LÖVE**: the same shape, with `DM_GL_CAPTURE` and `--gl-capture` (the three steps are in
+  the section above).
+
+Both count as **supported games**, just slower. Keep the captured folder: repacking the same game needs `--vk-capture`
+again, not another run; a different game needs its own.
+
+### Games that cannot be packed yet (5)
+
+Their shaders sit inside the game's own Oodle or LZ5 archives, and only the game's own decoder can unpack those — code
+that is Switch arm64 machine code, which only an Apple silicon (M-series) Mac can run natively. **The current packer has
+no such step**, so these five fail on Windows, Linux and macOS alike:
+
+| Game | Title ID | Where its shaders live |
+|---|---|---|
+| Bayonetta 3 | `01004A4010FEA000` | PlatinumGames PKZ |
+| DRAGON QUEST XI S | `01006C300E9F0000` | legacy Unreal pak (LZ5) |
+| FINAL FANTASY RESONANCE | `0100606026F12000` | Unreal ShaderArchive |
+| OCTOPATH TRAVELER 0 | `01005270232F2000` | Unreal ShaderArchive |
+| Pokémon Legends: Z-A | `0100F43008C44000` | Trinity packs (Game Freak) |
+
+The packer stops at the shader step and says why; it never produces an IPA that installs but cannot draw. The extraction
+and rewrite before that step are wasted (minutes on a large title), so do not just retry. These five carry a matching
+mark in the supported list.
+
+> Upstream's Mac route does pack these five, in **one run**: it builds a Mac host inside the pack and unpacks the shaders
+> with the game's own decoder — no separate capture, no phone. The difference is that it wants that machine to be an
+> Apple silicon Mac, while the group above is the other way round: the phone captures and Windows packs, no Mac at all.
+
+Every other game on the supported list packs and plays from its own files, LÖVE and Vulkan titles included.
 
 ## Notes and caveats
 

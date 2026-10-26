@@ -11,3 +11,6 @@ Do not write DM_PROGRAM_ID: the shell's save-data answer depends on the compiled
 LICENSE: the copyright line names seedds, whose MIT code this is	LICENSE 版权行改回 `seedds`（这份 MIT 代码的作者）
 Carry every profile switch the shell reads from the environment	壳从环境变量读取的每一个 profile 开关都接进打包器（含 op_mode 的 atoi 语义修正）
 Write the Chinese half of the release notes in Chinese: it listed the English commit subjects	发布说明的中文部分改成中文：原来「本版变更」那一段列的仍是英文提交标题
+Publish a shader cache .json through the Windows-safe replace	着色器缓存的 .json 改用 Windows 安全的换名方式发布：不同键可能算出同一个摘要、同时写同一个文件，共享冲突改为重试
+Ship the shader directory this build filled, not the alphabetically last one	装进 IPA 的是本轮真正建好的那个着色器目录，不再按字母序取最后一个；并对 shader_map.tsv 做覆盖断言，库少了就在打包机上停下
+Say in the README which games cannot be packed, before a user tries	README 把两件事分开写：「要抓一次」的游戏（银河 1/2 等，手机抓包 + Windows 打包，不需要 Mac，仍属支持）和「现在打不了」的 5 款（着色器压在 Oodle/LZ5 容器里，只有 Apple Silicon Mac 能跑游戏自己的解码器，而打包器还没有这条通路）；支持列表相应标「需抓一次」与「暂不支持」，并改掉指向 CAPTURE.md 的错误说明

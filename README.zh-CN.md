@@ -166,16 +166,41 @@ python scripts/nxn_pack.py <shell.zip> <小丑牌文件夹> -k prod.keys --tools
 苹果的 Metal 编译器（`xcrun metal`）只有 Mac 上有，所以包里带的是**源码**而不是编好的库——和本项目在没有 Xcode 的
 机器上打 NVN 游戏时是同一个做法：手机首次启动统一编译（有进度页），平时按 key 懒加载。
 
-### 只有两款游戏需要抓取一次
+### 要抓一次的游戏（**不需要 Mac**）
 
-支持列表里**只有超级马里奥银河 1、2**（`010099C022B96000` / `0100FD8022DAA000`）不能打一次就出成品。
+有几款不能「打一次直接玩」，要先用手机跑一次游戏、把运行时才生成的那些着色器抓下来，再打第二遍。**这一步全程在
+Windows + 手机上完成，不需要 Mac** —— 只是多装一次包、多跑一分钟。
 
-原因不是打包器缺步骤，而是它们的着色器**不存在于任何文件里**：Hagi 在运行时把 GameCube/Wii 的 GX 管线状态算成
-SPIR-V，代码是编译过的机器码，PC 上没有可复刻的可执行生成器。抓一次约一分钟，之后重打包不用再抓。
+- **超级马里奥银河 1、2**（`010099C022B96000` / `0100FD8022DAA000`，各约一分钟）：着色器**不存在于任何文件里** ——
+  Hagi 在运行时把 GameCube/Wii 的 GX 管线状态算成 SPIR-V，代码是编译过的机器码，PC 上没有可复刻的可执行生成器。
+  三步：`--no-shaders` 打一个不带着色器库的包 → 装上后在 `Documents/env.txt` 写 `DM_VK_CAPTURE=vkcap` 跑一次 →
+  `--vk-capture` 重打。细节：**[docs/CAPTURE.zh-CN.md](docs/CAPTURE.zh-CN.md)**（[English](docs/CAPTURE.md)）。
+- **不是 LÖVE 的 OpenGL 游戏**：同样是抓一次，只是写 `DM_GL_CAPTURE`、用 `--gl-capture` 重打（三步见上一节）。
 
-其余 53 款、以及上面说的 LÖVE 和 Vulkan 类游戏，都是**打一次直接玩**。
+这两类都算**支持的游戏**，只是麻烦一些。抓到的目录留着，以后重打同一款不用再抓；换了别的游戏才要重抓。
 
-做法、原理和注意事项在单独一页：**[docs/CAPTURE.zh-CN.md](docs/CAPTURE.zh-CN.md)**（[English](docs/CAPTURE.md)）。
+### 现在打不了的游戏（5 款）
+
+这 5 款的着色器压在游戏自己的 Oodle / LZ5 压缩容器里，解压只能调**游戏自己的解码函数**，而那段代码是 Switch 的 arm64
+机器码 —— 只有 Apple Silicon（M 系列）的 Mac 能原生执行它。**当前版本的打包器还没有这条通路**，所以这 5 款在 Windows、
+Linux、macOS 上都会失败：
+
+| 游戏 | Title ID | 着色器在哪种容器里 |
+|---|---|---|
+| Bayonetta 3 | `01004A4010FEA000` | PlatinumGames PKZ |
+| DRAGON QUEST XI S | `01006C300E9F0000` | 旧式 Unreal pak（LZ5） |
+| FINAL FANTASY RESONANCE | `0100606026F12000` | Unreal ShaderArchive |
+| OCTOPATH TRAVELER 0 | `01005270232F2000` | Unreal ShaderArchive |
+| Pokémon Legends: Z-A | `0100F43008C44000` | Trinity 包（Game Freak） |
+
+打包器会在**拆着色器**那一步停下并说明原因，**不会**产出一个装上去却画不出东西的半成品 IPA —— 但那之前的解包和改写会
+白跑（大作要几分钟），所以别急着重试。这 5 款在支持列表里也标着对应标记。
+
+> 上游（纯 Mac 路线）能出这 5 款，而且是**一次跑完**：它在打包流程里自动编译一个 Mac 宿主，用游戏自己的解码器把着色器解
+> 出来，不用先抓一遍、也不经过手机。区别在于它要求那台机器就是 Apple Silicon 的 Mac；而「要抓一次」那类反过来 —— 手机抓、
+> Windows 打，完全不需要 Mac。两件事。
+
+其余的游戏（含上面说的 LÖVE 和 Vulkan 类）都是**打一次直接玩**。
 
 ## 注意事项
 
