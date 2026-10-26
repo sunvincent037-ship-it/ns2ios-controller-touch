@@ -582,9 +582,19 @@ def step_aoc(nx, keys, dlcs, work, tid, force=False, allow_damaged=False):
         if d.is_dir() and d.name not in want and (d.name.isdigit() or d.name.endswith('.partial')):
             warn('DLC index %s is no longer in the folder: dropping it from the package' % d.name)
             shutil.rmtree(d, ignore_errors=True)
+    # What each index was extracted from. A DLC file swapped for another one of the same index must not be reused: this
+    # folder outlives a run with --keep-work, and a stale extraction looks exactly like a fresh one otherwise (the same
+    # failure as the shader directory that was picked by name instead of by what this run filled).
+    stamp = work / 'aoc.sources'
+    done = {}
+    if stamp.is_file():
+        for line in stamp.read_text(encoding='utf-8', errors='replace').splitlines():
+            f = line.split('\t')
+            if len(f) == 5: done[f[0]] = f[1:]
     for idx, t, p in jobs:
         dst = out / str(idx)
-        if dst.is_dir() and not force:
+        src = [t, p.name, str(p.stat().st_size), str(p.stat().st_mtime_ns)]
+        if dst.is_dir() and not force and done.get(str(idx)) == src:
             say('reusing the extracted DLC %d (title ID %s)' % (idx, t)); continue
         tmp = out / ('%d.partial' % idx)
         shutil.rmtree(tmp, ignore_errors=True)
@@ -593,8 +603,11 @@ def step_aoc(nx, keys, dlcs, work, tid, force=False, allow_damaged=False):
             hint=lambda t, n=p.name: aoc_hint(t, n))
         if dst.exists(): shutil.rmtree(dst, ignore_errors=True)
         tmp.replace(dst)
+        done[str(idx)] = src
         n = sum(1 for f in dst.rglob('*') if f.is_file())
         say('DLC %d: %d files -> aoc/%d' % (idx, n, idx))
+    stamp.write_text(''.join('%s\t%s\n' % (i, '\t'.join(done[i])) for i in sorted(want, key=int) if i in done),
+                     encoding='utf-8')
     return out
 
 
