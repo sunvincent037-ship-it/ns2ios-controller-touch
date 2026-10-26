@@ -1284,6 +1284,10 @@ def step_pack(A, out_ipa, rows, work):
     for sub in skips: args += ['--skip', '%s/%s' % (app, sub)]
     args += maps
     run(args, log=work / 'logs' / 'pack_ipa.log', what='packing the IPA')
+    # pack_ipa keeps <ipa>.idx beside the IPA so a later pack can copy unchanged entries out of it. That needs APFS and
+    # os.pread, so off macOS nothing is ever reused: the file would just sit next to the user's IPA.
+    idx = Path(str(out_ipa) + '.idx')
+    if os.name == 'nt' and idx.is_file(): idx.unlink()
 
 
 # ---------------------------------------------------------------- main

@@ -1,7 +1,7 @@
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
-@@ -67,12 +67,19 @@
+@@ -69,12 +69,19 @@
  
  def red(msg): sys.exit('[RED] ' + msg)
  
@@ -24,7 +24,7 @@ diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
      return zstd
  
  def ctl_len(ctl):
-@@ -1501,10 +1508,16 @@
+@@ -1595,10 +1602,16 @@
      return zstd.decompress(d, zstd_dict=_ZD[did])
  
  def unzs(path):
@@ -43,7 +43,7 @@ diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
      return unzs_dict(d, did, path)
  
  def frame_size(f):
-@@ -1817,7 +1830,10 @@
+@@ -1914,7 +1927,10 @@
      files, results, common = [], [], None
      for i, (romfs, mainnso) in enumerate(zip(romfs_v, main_v)):
          tag = os.path.basename(os.path.dirname(os.path.abspath(romfs))) if i else ''
