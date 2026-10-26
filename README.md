@@ -125,8 +125,9 @@ newest version it finds in the folder (override with `-p vN`) and builds it with
 files. Upstream tested each game on one version; on another version the app says so, and fixes made for the tested version
 (60 fps, for instance) do not apply to it.
 
-An update is optional — the base game alone is enough. DLC files in the folder are packed too, and without them the game sees
-none, exactly as on a Switch without them.
+An update is optional — the base game alone is enough. DLC files in the folder are packed too: each one's RomFS is
+extracted and mounted, so the game sees exactly the add-on content you put there, and none when the folder has none,
+exactly as on a Switch without them.
 
 ## How it works
 

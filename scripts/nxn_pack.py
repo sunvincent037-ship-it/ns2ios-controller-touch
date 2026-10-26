@@ -409,12 +409,26 @@ def name_ver(p):
     return 'v' + m.group(1) if m else None
 
 
+def app_id(tid, kind):
+    """The application title ID a file belongs to, so a base game, its updates and its DLC land in one group.
+
+    A base game ends in `…000`, an update is the base + 0x800, and add-on content is the base + 0x1000 + index. Taking the
+    low 12 bits off only handles the first two: a DLC's 0x1000 offset has to come off as well, or the DLC lands in a group
+    of its own and a folder holding a game and its DLC reads as "2 different games" (Breath of the Wild's packs, at
+    …E000 + 0x1000 + 1 and + 2, folded to 01007EF00011F000 instead of the game's 01007EF00011E000). Upstream's
+    build_ipa_from_nsp.py states the same rule in one line: `app = tid if low == 0 else tid & ~0xFFF if low == 0x800
+    else (tid & ~0xFFF) - 0x1000`."""
+    v = int(tid, 16)
+    if kind == 'dlc': v -= 0x1000
+    return '%016X' % (v - (v & 0xFFF))
+
+
 def scan_nsps(folder):
     """Group the folder's files into one game: the base, its updates and its DLC.
 
     The title ID is taken from the ticket inside the NSP, so file names do not have to follow a pattern (the [XXXXXXXXXXXXX000]
     in a name is only a fallback). An update's title ID is the base game's plus 0x800 and a DLC's is plus 0x1000 + index, which
-    is how the files are grouped -- so a folder holding a base game and its update is one game, not two.
+    is how the files are grouped (app_id) -- so a folder holding a base game, its update and its DLC is one game, not three.
 
     The version still comes from the [vN] in the name: the ticket carries no display version, and it is only used to tell
     updates apart (a base game is v0)."""
@@ -463,13 +477,12 @@ def scan_nsps(folder):
                 continue
             low = int(tid, 16) & 0xFFF
             kind = 'base' if low == 0 else ('update' if low == 0x800 else 'dlc')
-        base_id = int(tid, 16) - (int(tid, 16) & 0xFFF)   # updates sit at +0x800, DLC above +0x1000
-        key = '%016X' % base_id
+        key = app_id(tid, kind)
         a = apps.setdefault(key, {'base': None, 'updates': {}, 'dlc': [], 'all': []})
         a['all'].append((kind, ver, p))
         if kind == 'base': a['base'] = p
         elif kind == 'update': a['updates'][ver or 'v?'] = p
-        else: a['dlc'].append(p)
+        else: a['dlc'].append((tid, ver, p))
     return apps
 
 
@@ -512,6 +525,77 @@ def step_extract(nx, keys, folder, picks, work, versions, allow_damaged=False):
         tmp.replace(dst)
         dirs[ver] = dst
     return dirs
+
+
+def aoc_hint(text, name):
+    """The one DLC failure worth translating: a package that carries the ticket but no data NCA.
+
+    Some DLC NSPs in circulation are "licence only" -- they mark the add-on content as owned and contain no files at all,
+    which is no use for a package that has to mount the RomFS. nx_extract says "no data NCA in the DLC NSP", which reads
+    like a broken file; say what it actually is instead, and what to do.
+    """
+    if 'no data NCA in the DLC NSP' in text:
+        return ('%s holds a licence but no content (a "licence only" DLC package): it marks the add-on as owned but has\n'
+                '    none of its files, so there is nothing to mount. Use a DLC NSP that carries the data, or leave this\n'
+                "    file out of the folder -- the game then simply sees no add-on content." % name)
+    return None
+
+
+def step_aoc(nx, keys, dlcs, work, tid, force=False, allow_damaged=False):
+    """The RomFS of every DLC in the folder, at work/aoc/<index>/ (index = its title ID - the base game's - 0x1000).
+
+    The shell mounts these through DM_AOC_DIR: main.m points that at <App>/aoc when it exists, hle_fs.c's
+    fs::MountAddOnContent opens DM_AOC_DIR/<index> read-only, and hle_misc.c reports the directory names as the owned
+    indices (which is what nn::aoc::CountAddOnContent is asked for). So the game sees exactly the add-on content the user
+    put in the folder, and nothing when the folder has none -- same as a console without the DLC installed.
+
+    One extraction serves every version: add-on content is not part of the update, and a folder usually holds exactly one
+    DLC set. nx_extract --aoc reads the DLC NSP's data NCA; a directory is only renamed into place once the extraction
+    finished, so an interrupted run leaves <index>.partial and is redone.
+    """
+    if not dlcs: return None
+    # The same DLC can sit in the folder twice (a dump and its update, or two copies of the same file): take the highest
+    # version, and the larger of equal versions, as upstream's extract_aoc does.
+    best = {}
+    def vnum(v):
+        v = (v or '').lstrip('v')
+        return int(v) if v.isdigit() else 0
+    for t, ver, p in dlcs:
+        k = (vnum(ver), p.stat().st_size)
+        if t not in best or k > best[t][0]: best[t] = (k, p)
+    if len(best) < len(dlcs):
+        say('%d DLC file(s) are copies of another one in the folder: packing %d' % (len(dlcs) - len(best), len(best)))
+    jobs = []
+    for t, (_, p) in best.items():
+        idx = int(t, 16) - int(tid, 16) - 0x1000
+        if idx < 0: die('%s says it is add-on content of %s (title ID %s), which is the base game or below it' % (p.name, tid, t))
+        jobs.append((idx, t, p))
+    jobs.sort()
+    if len({i for i, _, _ in jobs}) != len(jobs):
+        die('two DLC files in %s claim the same add-on index: %s'
+            % (dlcs[0][2].parent, ', '.join('%d (%s)' % (i, p.name) for i, _, p in jobs)))
+    out = work / 'aoc'
+    out.mkdir(parents=True, exist_ok=True)
+    # A DLC removed from the folder must not stay in the package: this folder outlives a run with --keep-work.
+    want = {str(i) for i, _, _ in jobs}
+    for d in sorted(out.iterdir()):
+        if d.is_dir() and d.name not in want and (d.name.isdigit() or d.name.endswith('.partial')):
+            warn('DLC index %s is no longer in the folder: dropping it from the package' % d.name)
+            shutil.rmtree(d, ignore_errors=True)
+    for idx, t, p in jobs:
+        dst = out / str(idx)
+        if dst.is_dir() and not force:
+            say('reusing the extracted DLC %d (title ID %s)' % (idx, t)); continue
+        tmp = out / ('%d.partial' % idx)
+        shutil.rmtree(tmp, ignore_errors=True)
+        run([nx, keys, '--aoc', p, tmp] + (['--allow-damaged'] if allow_damaged else []),
+            log=work / 'logs' / ('dlc_%d.log' % idx), what='extracting DLC %d (%s)' % (idx, p.name),
+            hint=lambda t, n=p.name: aoc_hint(t, n))
+        if dst.exists(): shutil.rmtree(dst, ignore_errors=True)
+        tmp.replace(dst)
+        n = sum(1 for f in dst.rglob('*') if f.is_file())
+        say('DLC %d: %d files -> aoc/%d' % (idx, n, idx))
+    return out
 
 
 # Files a derived profile leaves out: the build makes all of these again from the packed version's own files.
@@ -1041,7 +1125,7 @@ def env_for(rows):
     return lines
 
 
-def step_assemble(shell, stage, game, patched, mods, gdir, rows, name, version, tid, msl_dir, work):
+def step_assemble(shell, stage, game, patched, mods, gdir, rows, name, version, tid, msl_dir, work, aoc_dir=None):
     """Unpack the shell and put the game into it: guest library, MSL source, RomFS, tables, icon, identity."""
     # Move a previous stage aside instead of deleting it: this environment counts file deletions and refuses to go past a
     # threshold, which a 5000-file app tree trips instantly. Renaming keeps the build going; the old tree is reported so it
@@ -1076,6 +1160,15 @@ def step_assemble(shell, stage, game, patched, mods, gdir, rows, name, version, 
 
     shutil.copytree(game / 'RomFS', A / 'romfs', symlinks=True)
     say('RomFS in place')
+
+    # Add-on content: <App>/aoc/<index>/, which main.m hands to the host as DM_AOC_DIR and hle_fs.c mounts for the game.
+    # Absent when the folder holds no DLC, and then the host reports no add-on content at all -- the same as a console
+    # without it installed.
+    if aoc_dir is not None and aoc_dir.is_dir():
+        dst = A / 'aoc'
+        if dst.exists(): shutil.rmtree(dst, ignore_errors=True)
+        shutil.copytree(aoc_dir, dst, symlinks=True)
+        say('add-on content in place: index %s' % ', '.join(sorted((d.name for d in dst.iterdir() if d.is_dir()), key=int)))
 
     # tables the game profile carries (shader map, c1 list, warm-up list, uniform extents)
     for n in ('shader_map.tsv', 'pso_manifest.tsv', 'c1_full.tsv', 'cb_extent.tsv'):
@@ -1303,7 +1396,7 @@ def main():
     picks = {pkg: (fam['base'], fam['updates'][pkg] if pkg != 'v0' and pkg in fam['updates'] else None)}
     say('files: base %s%s' % (fam['base'].name,
         (', update %s' % fam['updates'][pkg].name) if pkg != 'v0' and pkg in fam['updates'] else ', no update')
-        + (('; ignoring %d DLC' % len(fam['dlc'])) if fam['dlc'] else ''))
+        + (('; %d DLC' % len(fam['dlc'])) if fam['dlc'] else ''))
 
     work = folder / (tid + '_pack')
     work.mkdir(parents=True, exist_ok=True)
@@ -1329,6 +1422,7 @@ def main():
 
     nx = nx or build_nx_extract(dotnet, work, tools_dir)
     dirs = step_extract(nx, keys, folder, picks, work, versions, a.allow_damaged)
+    aoc_dir = step_aoc(nx, keys, fam['dlc'], work, tid, a.force, a.allow_damaged)
     if a.stop_after == 'extract': return say('stopped after extract')
     game = dirs[pkg]
     derived_dir = None
@@ -1501,7 +1595,7 @@ def main():
 
     stage = work / 'stage'
     A = step_assemble(shell, stage, game, patched, mods, gdir, rows,
-                      one(rows, 'name', tid), builds[pkg], tid, msl_out, work)
+                      one(rows, 'name', tid), builds[pkg], tid, msl_out, work, aoc_dir)
     if vk_out is not None:
         dst = A / 'msl' / 'vk'
         shutil.rmtree(dst, ignore_errors=True)
