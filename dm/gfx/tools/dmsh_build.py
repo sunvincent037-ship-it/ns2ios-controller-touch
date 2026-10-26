@@ -72,7 +72,10 @@ def atomic_json(path, value):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + '.tmp-' + str(os.getpid()) + '-' + str(threading.get_ident())
     with open(tmp, 'w') as f: json.dump(value, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
+    # Keys that share a digest are published by the pool at the same time, so one destination can be
+    # renamed onto twice at once: Windows answers with WinError 5 where POSIX just queues. Reuse the
+    # Windows-safe replace the cache module already carries instead of a second copy of that loop.
+    dmsh_mtlcache._replace(tmp, path)
 
 def source_without_rule_bodies():
     source = open(__file__, 'r').read(); lines = source.splitlines(True); tree = ast.parse(source)
