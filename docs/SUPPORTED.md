@@ -3,7 +3,7 @@
 Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not edit by hand.  
 本页由 `dm/tools/supported_list.py` 从 `dm/games/*/game.tsv` 生成，请勿手动修改。
 
-**81 款游戏。** 文件名不重要——打包器从包内容识别游戏，在下表里对上 title ID 就够了。
+**84 款游戏。** 文件名不重要——打包器从包内容识别游戏，在下表里对上 title ID 就够了。
 
 - **IPA 体积** ≈ 你的 NSP/XCI 体积 + 约 16 MB（壳本身）。游戏文件在包里是原样存放的，不再压缩。
 - **首次启动**要编译着色器：打包时只把 Switch 的着色器翻译成 Metal 源码，编译在手机上做（之后有缓存）。几秒到大作几分钟，启动时有进度页。
@@ -16,6 +16,7 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 |---|---|---|---|
 | 13 Sentinels: Aegis Rim | `01003FC01670C000` | 1.10 |  |
 | 13 Sentinels: Aegis Rim (Asia) | `01008D7016438000` | 1.00 |  |
+| 13 Sentinels: Aegis Rim (Japan) | `010045C014650000` | 1.00 |  |
 | Absolum | `0100A83022A22000` | 1.1.1 |  |
 | Ace Attorney Investigations Collection | `010005501E68C000` | 1.0.0.2 |  |
 | Advance Wars 1+2: Re-Boot Camp | `0100300012F2A000` | 1.0.0 |  |
@@ -41,6 +42,7 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 | Donkey Kong Country: Tropical Freeze | `0100C1F0051B6000` | 1.0.2 |  |
 | DRAGON QUEST VII Reimagined | `0100A9D01C446000` | 1.2.0 | 60 fps |
 | DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition | `01006C300E9F0000` | 1.0.4 | 60 fps · 暂不支持 |
+| FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition | `0100CE4010AAC000` | 1.0.3 |  |
 | FINAL FANTASY RESONANCE | `0100606026F12000` | 1.0.1 | 60 fps · 暂不支持 |
 | FINAL FANTASY TACTICS - The Ivalice Chronicles | `010038B015560000` | 1.4.0 |  |
 | Fire Emblem Engage | `0100A6301214E000` | 2.0.0 |  |
@@ -53,7 +55,7 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 | Kirby and the Forgotten Land | `01004D300C5AE000` | 1.1.0 |  |
 | Luigi's Mansion 3 | `0100DCA0064A6000` | 1.4.0 | 60 fps |
 | Mario + Rabbids® Sparks of Hope | `0100317013770000` | 1.6.2225577 |  |
-| Mario Kart 8 Deluxe | `0100152000022000` | 4.0.0 |  |
+| Mario Kart 8 Deluxe | `0100152000022000` | 4.0.1（也可 4.0.0） |  |
 | Mario vs. Donkey Kong | `0100B99019412000` | 1.0.1 |  |
 | Metroid Dread | `010093801237C000` | 2.1.0 |  |
 | Monster Hunter Rise | `0100B04011742000` | 16.0.2 | 60 fps |
@@ -92,6 +94,7 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 | The Legend of Zelda: Link's Awakening | `01006BB00C6F0000` | 1.1.0 |  |
 | The Legend of Zelda: Tears of the Kingdom | `0100F2C0115B6000` | 1.4.3 | 60 fps |
 | Unicorn Overlord | `010069401ADB8000` | 1.05 |  |
+| Unicorn Overlord (Asia) | `010054B01AD92000` | 1.05 |  |
 | Xenoblade Chronicles 2 | `0100E95004038000` | 2.1.0 |  |
 | Xenoblade Chronicles 3 | `010074F013262000` | 2.2.1 |  |
 | Yoshi's Crafted World | `01006000040C2000` | 1.0.1 |  |
