@@ -1,14 +1,14 @@
 diff --git a/dm/gfx/tools/dmsh_mtlcache.py b/dm/gfx/tools/dmsh_mtlcache.py
 --- a/dm/gfx/tools/dmsh_mtlcache.py
 +++ b/dm/gfx/tools/dmsh_mtlcache.py
-@@ -8,16 +8,33 @@
- # of the same chain holds the iOS libraries of the same sources. A folder is taken only when its json chain_metal is the current convention and a fresh compile of
- # a few of its shaders (two per stage) reproduces their libraries byte for byte; each folder is read once (filled.json remembers it by its number of libraries).
+@@ -7,16 +7,33 @@
+ # Filling from earlier builds: every imported library must record the current compiler identity and flags in its reflection. Legacy libraries without that identity are not imported.
+ # A fresh compile of two shaders per stage also checks their bytes. Each folder is read once per compiler identity (filled.json remembers its number of libraries).
  # Not part of the chain version (dmsh_chain.py): the cache never changes an output, it only skips recompiling one. Change FORMAT when what it stores changes.
 -import os, re, json, shutil, ctypes, hashlib, threading, subprocess, collections
 +import os, re, json, shutil, ctypes, hashlib, threading, subprocess, collections, time
  
- FORMAT = b'dmsh_mtlcache 1'
+ FORMAT = b'dmsh_mtlcache 2'   # earlier prefill could misclassify an unsampled library from another compiler
 -_clonefile = getattr(ctypes.CDLL(None, use_errno=True), 'clonefile', None)   # APFS copy-on-write copy (no data written); elsewhere a plain copy
 +try:   # CDLL(None) means "the running process" on POSIX only; on Windows it raises TypeError, so the copy is a plain one
 +    _clonefile = getattr(ctypes.CDLL(None, use_errno=True), 'clonefile', None)   # APFS copy-on-write copy (no data written); elsewhere a plain copy
@@ -38,7 +38,7 @@ diff --git a/dm/gfx/tools/dmsh_mtlcache.py b/dm/gfx/tools/dmsh_mtlcache.py
  
  
  def compiler_id(sdk):
-@@ -53,7 +70,7 @@
+@@ -55,7 +72,7 @@
              clone(p, lib); self.count((target, 'reused')); return
          tmp = f'{lib}.tmp-{os.getpid()}-{threading.get_ident()}'
          self._compile(target, msl, tmp)

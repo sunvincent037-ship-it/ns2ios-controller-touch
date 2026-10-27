@@ -1,13 +1,15 @@
 // iOS App entry: set the environment (game files, saves, shader libraries), write the host log to Documents/log.txt, create the window (front_ios.m), then run the host's dm_main on a big-stack thread.
-// The game files (RomFS) ship inside the App at <App>/romfs; Documents/romfs placed through the Files app is also accepted (lets you swap them without reinstalling).
+// The game files (RomFS) ship inside the App at <App>/romfs; Documents/romfs.img (one image, scripts/push_romfs.sh) or a Documents/romfs folder is also accepted (lets you swap them without reinstalling).
 #import <UIKit/UIKit.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <os/proc.h>          // os_proc_available_memory: the line at boot saying whether the memory entitlement took effect
 #include "game_profile.h"   // game profile constants (the RomFS marker path)
 #include "front.h"
+#include "romfs_image.h"
 
 int dm_main(int argc, char **argv);   // dm/host/main.c compiled in with -Dmain=dm_main
 #ifdef DM_SHELL
@@ -19,9 +21,35 @@ void front_ios_focus_event(int ev);
 
 static char *g_argv[16]; static int g_argc;   // 2 fixed + the Guest library's module names (a shell has no module list compiled in)
 
+// Documents/romfs.img, one RomFS image file (dm/tools/romfs_image.py, scripts/push_romfs.sh): only a complete one counts. Its index is written last and ends the file, so a copy cut off partway is skipped
+static int romfs_image_complete(NSString *path) {
+    romfs_img *m = romfs_image_open(path.fileSystemRepresentation);
+    if (!m) {
+        if (errno != ENOENT) fprintf(stderr, "[RED] boot: invalid RomFS image %s (errno=%d); trying the folders\n", path.fileSystemRepresentation, errno);
+        return 0;
+    }
+    romfs_image_close(m); return 1;
+}
 static NSString *romfs_locate(void) {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
+    NSString *img = [doc stringByAppendingPathComponent:@"romfs.img"];
+    if (romfs_image_complete(img)) {
+        // A folder copy from before images is now dead weight of up to many GB (often cut off partway). Deleting its 300,000 files here took longer than iOS allows an app to start
+        // (Tears of the Kingdom: killed on a black screen), so it is moved aside at once and deleted in the background, leftovers of an interrupted delete included
+        NSString *old = [doc stringByAppendingPathComponent:@"romfs"], *tmp = NSTemporaryDirectory();
+        if ([fm fileExistsAtPath:old] && [fm moveItemAtPath:old toPath:[tmp stringByAppendingPathComponent:[@"romfs-old-" stringByAppendingString:NSUUID.UUID.UUIDString]] error:nil])
+            fprintf(stderr, "boot: Documents/romfs moved aside for deletion (Documents/romfs.img replaces it)\n");
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
+            NSFileManager *bfm = [NSFileManager new];
+            for (NSString *n in [bfm contentsOfDirectoryAtPath:tmp error:nil]) if ([n hasPrefix:@"romfs-old-"]) [bfm removeItemAtPath:[tmp stringByAppendingPathComponent:n] error:nil];
+        });
+        return img;
+    }
+    NSString *bundledImage = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs.img"];
+    NSString *documentFolder = [doc stringByAppendingPathComponent:@"romfs"];
+    if ([fm fileExistsAtPath:[documentFolder stringByAppendingPathComponent:@DM_GAME_ROMFS_MARKER]]) return documentFolder;
+    if (romfs_image_complete(bundledImage)) return bundledImage;
     for (NSString *d in @[[doc stringByAppendingPathComponent:@"romfs"], [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs"]]) {
 #ifdef DM_SHELL
         // One shell serves any game, so it cannot know a single game's romfs_marker: the first existing, non-empty candidate wins.
@@ -41,8 +69,8 @@ static int boot_env(void) {
     NSString *res = NSBundle.mainBundle.resourcePath;
     for (NSString *d in @[@"save", @"temp"]) [fm createDirectoryAtPath:[doc stringByAppendingPathComponent:d] withIntermediateDirectories:YES attributes:nil error:nil];
     // Keep game files and scratch data out of device backups (Documents is backed up by default; a RomFS placed there is many GB). Saves, logs and the pipeline list stay in the backup
-    for (NSString *d in @[@"romfs", @"temp"]) {
-        NSURL *u = [NSURL fileURLWithPath:[doc stringByAppendingPathComponent:d] isDirectory:YES]; NSError *e = nil;
+    for (NSString *d in @[@"romfs", @"romfs.img", @"temp"]) {
+        NSURL *u = [NSURL fileURLWithPath:[doc stringByAppendingPathComponent:d]]; NSError *e = nil;
         if ([fm fileExistsAtPath:u.path] && ![u setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:&e]) fprintf(stderr, "boot: %s could not be excluded from backup: %s\n", d.UTF8String, e.localizedDescription.UTF8String);
     }
     // Log: the host only writes to stderr; redirect it to Documents/log.txt (the previous one is kept as log.prev.txt), retrieve it from the Files app when something goes wrong
@@ -75,7 +103,7 @@ static int boot_env(void) {
               av < (5ull << 30) ? "no increased-memory-limit entitlement: the bigger games will be killed for memory"
                                 : "entitlement in effect"); }
     NSString *romfs = romfs_locate();
-    if (!romfs) { fprintf(stderr, "boot: game files not found (<App>/romfs or Documents/romfs)\n"); return 0; }
+    if (!romfs) { fprintf(stderr, "boot: game files not found (Documents/romfs.img, Documents/romfs or <App>/romfs)\n"); return 0; }
     fprintf(stderr, "boot: game files %s\n", romfs.fileSystemRepresentation);
     setenv("DM_ROMFS", romfs.fileSystemRepresentation, 0);
     setenv("DM_SAVE", [doc stringByAppendingPathComponent:@"save"].fileSystemRepresentation, 0);

@@ -1,7 +1,7 @@
 diff --git a/dm/gfx/tools/dmsh_build.py b/dm/gfx/tools/dmsh_build.py
 --- a/dm/gfx/tools/dmsh_build.py
 +++ b/dm/gfx/tools/dmsh_build.py
-@@ -72,7 +72,10 @@
+@@ -79,7 +79,10 @@
      os.makedirs(os.path.dirname(path), exist_ok=True)
      tmp = path + '.tmp-' + str(os.getpid()) + '-' + str(threading.get_ident())
      with open(tmp, 'w') as f: json.dump(value, f, ensure_ascii=False, indent=1)

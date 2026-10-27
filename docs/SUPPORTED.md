@@ -3,7 +3,7 @@
 Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not edit by hand.  
 本页由 `dm/tools/supported_list.py` 从 `dm/games/*/game.tsv` 生成，请勿手动修改。
 
-**75 款游戏。** 文件名不重要——打包器从包内容识别游戏，在下表里对上 title ID 就够了。
+**79 款游戏。** 文件名不重要——打包器从包内容识别游戏，在下表里对上 title ID 就够了。
 
 - **IPA 体积** ≈ 你的 NSP/XCI 体积 + 约 16 MB（壳本身）。游戏文件在包里是原样存放的，不再压缩。
 - **首次启动**要编译着色器：打包时只把 Switch 的着色器翻译成 Metal 源码，编译在手机上做（之后有缓存）。几秒到大作几分钟，启动时有进度页。
@@ -50,7 +50,9 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 | Hades II | `0100A00019DE0000` | 0.0.126424 |  |
 | Hollow Knight: Silksong | `010013C00E930000` | 1.0.30000 |  |
 | Hyrule Warriors: Age of Calamity | `01002B00111A2000` | 1.3.0 | 60 fps |
+| Kirby and the Forgotten Land | `01004D300C5AE000` | 1.1.0 |  |
 | Luigi's Mansion 3 | `0100DCA0064A6000` | 1.4.0 | 60 fps |
+| Mario + Rabbids® Sparks of Hope | `0100317013770000` | 1.6.2225577 |  |
 | Mario Kart 8 Deluxe | `0100152000022000` | 4.0.0 |  |
 | Mario vs. Donkey Kong | `0100B99019412000` | 1.0.1 |  |
 | Metroid Dread | `010093801237C000` | 2.1.0 |  |
@@ -89,3 +91,5 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 | The Legend of Zelda: Link's Awakening | `01006BB00C6F0000` | 1.1.0 |  |
 | The Legend of Zelda: Tears of the Kingdom | `0100F2C0115B6000` | 1.4.3 | 60 fps |
 | Unicorn Overlord | `010069401ADB8000` | 1.05 |  |
+| Xenoblade Chronicles 3 | `010074F013262000` | 2.2.1 |  |
+| Yoshi's Crafted World | `01006000040C2000` | 1.0.1 |  |
