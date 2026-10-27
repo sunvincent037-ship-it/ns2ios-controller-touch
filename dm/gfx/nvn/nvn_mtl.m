@@ -5377,7 +5377,12 @@ static id<MTLRenderPipelineState> pso_build_ex(MTLRenderPipelineDescriptor *d, N
     return ps;
 }
 #ifdef DM_SHELL
-#include "../../ios/Sources/dm_shader_learn.h"
+// dm/ios/Sources/dm_shader_learn.h, spelled out: this file is compiled from a symlink in Gen/src, so a relative include
+// would resolve against the wrong directory. The declarations are the whole interface (dm_shader_learn.m defines them).
+extern char *dm_shader_learn_rewrite(const char *src, size_t len, unsigned mask, size_t *out_len);
+extern unsigned dm_shader_learn_mask(const char *key);
+extern void dm_shader_learn_note(const char *key, unsigned mask, const char *why);
+extern int dm_shader_learn_enabled(void);
 // ---- A pipeline the MTLDevice refused: built again from a shader with the output types this pass needs -------------
 // dm_shader_learn.h has the whole story; in short: the pass binds colour slot N as an integer target, the shader declares
 // it float, and Metal refuses the pipeline where the console's hardware converts the value as it writes it. This rewrites
