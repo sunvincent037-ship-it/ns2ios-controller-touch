@@ -1,14 +1,16 @@
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
-@@ -6,15 +6,20 @@
- #include <stdio.h>
+@@ -7,6 +7,7 @@
+ #include <string.h>
  #include <sys/stat.h>
  #include <unistd.h>
 +#include <os/proc.h>          // os_proc_available_memory: the line at boot saying whether the memory entitlement took effect
  #include "game_profile.h"   // game profile constants (the RomFS marker path)
  #include "front.h"
  #include "romfs_image.h"
+@@ -14,10 +15,14 @@
+ extern char **environ;
  
  int dm_main(int argc, char **argv);   // dm/host/main.c compiled in with -Dmain=dm_main
 +#ifdef DM_SHELL
@@ -23,7 +25,7 @@ diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
  
  // Documents/romfs.img, one RomFS image file (dm/tools/romfs_image.py, scripts/push_romfs.sh): only a complete one counts. Its index is written last and ends the file, so a copy cut off partway is skipped
  static int romfs_image_complete(NSString *path) {
-@@ -45,8 +50,15 @@
+@@ -48,8 +53,15 @@
      NSString *documentFolder = [doc stringByAppendingPathComponent:@"romfs"];
      if ([fm fileExistsAtPath:[documentFolder stringByAppendingPathComponent:@DM_GAME_ROMFS_MARKER]]) return documentFolder;
      if (romfs_image_complete(bundledImage)) return bundledImage;
@@ -40,7 +42,7 @@ diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
      return nil;
  }
  
-@@ -83,6 +95,13 @@
+@@ -91,6 +103,13 @@
      NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
      if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
      fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
@@ -54,7 +56,7 @@ diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
      NSString *romfs = romfs_locate();
      if (!romfs) { fprintf(stderr, "boot: game files not found (Documents/romfs.img, Documents/romfs or <App>/romfs)\n"); return 0; }
      fprintf(stderr, "boot: game files %s\n", romfs.fileSystemRepresentation);
-@@ -99,6 +118,12 @@
+@@ -107,6 +126,12 @@
      if ([fm fileExistsAtPath:pso]) setenv("DM_PSO_BUNDLE", pso.fileSystemRepresentation, 0);
      chdir(doc.fileSystemRepresentation);
      g_argv[0] = strdup("dmhost"); g_argv[1] = strdup(dm.fileSystemRepresentation); g_argc = 2;
@@ -67,7 +69,7 @@ diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
      dm_host_preload_start(g_argc, g_argv);   // Module tables / relocation / takeover run early in the background, in parallel with UIKit startup (and the launcher: the settings it sets are read when the game starts)
      return 1;
  }
-@@ -111,11 +136,19 @@
+@@ -119,11 +144,19 @@
      fprintf(stderr, "boot: dm_main returned %d\n", rc);
      return NULL;
  }
