@@ -310,6 +310,12 @@ def load_profile(tid):
 
 
 def one(rows, key, default=None):
+    # The guard is not decoration: this call sits after the six-minute translation, and the one time a caller in main() bound
+    # the name "rows" to a lambda the run died here with AttributeError, three minutes after the useful work was done. Say
+    # what went wrong instead.
+    if not isinstance(rows, dict):
+        raise TypeError('one() wants the profile row table (a dict keyed by column name), got %s -- something in the same '
+                        'function rebound the name "rows"' % type(rows).__name__)
     v = rows.get(key)
     return v[0] if v else default
 
@@ -1555,6 +1561,23 @@ def main():
             for f in sorted(tb.glob('*.tsv')):
                 shutil.copyfile(f, derived_dir / f.name)
             say('derived profile tables: %s' % ', '.join(f.name for f in sorted(tb.glob('*.tsv'))))
+        else:
+            # The translator answers its queries from the PROFILE's shader_facts.tsv (dmsh_facts.py: GAME.table), not from
+            # the copy the split just made, so a fact that only the profile's shader_facts_manual.tsv carries never reaches
+            # it: the split merges the manual rows, the translator reads the unmerged table, and the difference shows up only
+            # on the phone (a pipeline Metal refuses). Written back only when the data rows actually differ, so every game
+            # whose profile already matches keeps its committed table untouched. Upstream does the same when the profile is
+            # provisional ("a provisional profile takes the tables as they come", scripts/build_ipa_from_nsp.py).
+            facts_split, facts_prof = tb / 'shader_facts.tsv', gdir / 'shader_facts.tsv'
+            if facts_split.is_file() and facts_prof.is_file():
+                # Not "rows": main() binds that name to the profile's row table, and a local called rows here rebinds it for
+                # the whole function, so step_assemble's one(rows, ...) got this lambda and died with
+                # AttributeError: 'function' object has no attribute 'get' -- after the 6-minute translation, every time.
+                fact_rows = lambda p: [l for l in p.read_text(errors='replace').splitlines() if l and not l.startswith('#')]
+                if fact_rows(facts_split) != fact_rows(facts_prof):
+                    shutil.copyfile(facts_split, facts_prof)
+                    say('shader facts: profile %s now carries the merged table (%d rows), which is what the translator reads'
+                        % (gdir.name, len(fact_rows(facts_split))))
     if a.stop_after == 'shaders': return say('stopped after the shader split')
 
     if route != 'nvn':

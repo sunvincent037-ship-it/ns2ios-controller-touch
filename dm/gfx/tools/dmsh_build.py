@@ -909,7 +909,7 @@ def finish(key, w, j, c1):
         if extra:
             j['attr'].update(extra); jp = os.path.join(w, f'job1_{key}.json'); json.dump([j], open(jp, 'w'))
             rx = subprocess.run([XLATE, jp, w], capture_output=True, text=True)
-            if rx.returncode or not os.path.exists(os.path.join(w, key + '.spv')): return 'translation failed', ('integer-input retranslation: ' + rx.stderr.strip())[:160], None
+            if rx.returncode or not os.path.exists(os.path.join(w, key + '.spv')): return 'translation failed', ('integer-input retranslation: exit %s: ' % rx.returncode + (rx.stderr or rx.stdout or '(no output)'))[:160], None
             spv_single_lane(os.path.join(w, key + '.spv'))
             r = subprocess.run([SPIRV_CROSS, *dmsh_atomic.cross_args(XC, os.path.join(w, key + '.spv')), os.path.join(w, key + '.spv'), '--output', msl], capture_output=True, text=True)
             if r.returncode: return 'MSL failed', r.stderr.strip()[:160], None
