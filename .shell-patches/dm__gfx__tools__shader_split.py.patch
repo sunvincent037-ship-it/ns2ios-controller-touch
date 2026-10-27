@@ -45,7 +45,7 @@ diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
      return unzs_dict(d, did, path)
  
  def frame_size(f):
-@@ -2155,7 +2168,10 @@
+@@ -2192,7 +2205,10 @@
      files, results, common = [], [], None
      for i, (romfs, mainnso) in enumerate(zip(romfs_v, main_v)):
          tag = os.path.basename(os.path.dirname(os.path.abspath(romfs))) if i else ''

@@ -3,7 +3,7 @@
 Each game the port knows has a folder `dm/games/<id>/`, named after the base game's title ID: Mario's is `010015100B514000`, Engage's `0100A6301214E000`. The folder holds:
 
 - **`game.tsv`**: the game's constants, one `key<TAB>value` row each, with comments on their own lines.
-- **The shader tables** that `shader_split.py` writes: `shader_map.tsv` (+ `.conflicts.tsv`), `shader_facts.tsv`, `shader_pairs.tsv`, and `pso_pairs.tsv` (agl BAHS program variations). Both pair tables feed vertex output padding and the pipeline prebuild; for a profile without `pso_pairs.tsv`, the NSP script keeps the generated table beside the shader package.
+- **The shader tables** that `shader_split.py` writes: `shader_map.tsv` (+ `.conflicts.tsv`), `shader_facts.tsv`, `shader_pairs.tsv`, and `pso_pairs.tsv` (supplemental agl BAHS program variations and legacy Unity pass-input covers). Both pair tables feed vertex output padding and the pipeline prebuild; for a profile without `pso_pairs.tsv`, the NSP script keeps the generated table beside the shader package.
 - **`shader_facts_manual.tsv`** (optional): hand-written translation facts in `shader_facts.tsv`'s row format, for what the machine code cannot tell (Link's Awakening: a vertex input the integer-input guess gets wrong; Breath of the Wild and Tears of the Kingdom: integer fragment outputs, which a game without a PC version has no other source for). `shader_split.py` merges it over the generated rows; since the table is on the chain, changing it changes only that profile's chain version.
 - **`pso_manifest.tsv`**: the prewarm seed list.
 - **`bench.tsv`** (optional): benchmark routes for `scripts/bench.py` ([A benchmark on the Mac](../../docs/development.md#a-benchmark-on-the-mac)): a name, the scripted input (`DM_KEYS`), the measured window and a description, one route per line.
@@ -57,6 +57,8 @@ One row per profile; the notes are each profile's `README.md`.
 | [Bayonetta 2](01007960049A0000/README.md) | `01007960049A0000` | 1.2 | 3.6.0 | PlatinumGames' engine (Wii U form) | NVN |
 | [Bayonetta 3](01004A4010FEA000/README.md) | `01004A4010FEA000` | 1.2.0 | 13.3.2 | PlatinumGames' engine | NVN |
 | [Big Brain Academy: Brain vs. Brain](0100620012D6E000/README.md) | `0100620012D6E000` | 1.2.0 | 11.4.3 | NintendoWare Bezel Engine 1.56 | NVN |
+| [Blasphemous](0100698009C6E000/README.md) | `0100698009C6E000` | 1.0.8 | 8.3.1 | Unity 2017.4.28f1 IL2CPP, FMOD | NVN |
+| [Blasphemous 2](010040801A4C8000/README.md) | `010040801A4C8000` | 1.0.8 | 15.3.2 | Unity 2021.3.20f1 IL2CPP, FMOD | NVN |
 | [Brain Memory Training Academy](0100F5D01DA3A000/README.md) | `0100F5D01DA3A000` | 1.0.0 (base) | 16.2.4 | Unity 2022.3.5f1 IL2CPP | NVN |
 | [Captain Toad: Treasure Tracker](01009BF0072D4000/README.md) | `01009BF0072D4000` | 1.4.2 | 8.2.0 | Nintendo EPD Tokyo (`al` over sead / agl) | NVN |
 | [Catherine: Full Body](0100BF00112C0000/README.md) | `0100BF00112C0000` | 1.0.1a | 8.2.1 | Atlus GFD (CRI middleware) | NVN |
@@ -101,10 +103,12 @@ One row per profile; the notes are each profile's `README.md`.
 | [Pokémon Sword](0100ABF008968000/README.md) | `0100ABF008968000` | 1.3.2 | 7.3.2 | Game Freak's engine (before Trinity) | NVN |
 | [Portal](01007BB017812000/README.md) | `01007BB017812000` | 1.0.3 | 13.3.0 | Valve's Source engine (28 NROs) | NVN |
 | [Raging Loop](010020400E1C2000/README.md) | `010020400E1C2000` | 1.0.0 (base) | 7.3.2 | Unity 2018.3.10f1 IL2CPP | NVN |
+| [Return of the Obra Dinn](010032E00E6E2000/README.md) | `010032E00E6E2000` | 1.0.1 | 8.2.0 | Unity 2017.4.28f1 IL2CPP | NVN |
 | [Rhythm Heaven Groove](0100D9F01D474000/README.md) | `0100D9F01D474000` | 1.0.0 (base) | 21.4.0 | Nintendo's own 2D engine | NVN |
 | [ROMANCE OF THE THREE KINGDOMS 8 REMAKE](0100C2A01A730000/README.md) | `0100C2A01A730000` | 1.1.3 | 17.5.3 | Koei Tecmo's KTGL | NVN |
 | [Sea of Stars](01008C0016544000/README.md) | `01008C0016544000` | 2.0.59001 | 16.2.0 | Unity 2021.3.25f1 IL2CPP | NVN |
 | [SHIN MEGAMI TENSEI V: Vengeance](010069C01AB82000/README.md) | `010069C01AB82000` | 1.0.3 | 15.3.2 | Unreal Engine 4.27 | NVN |
+| [Silver Pines](0100D5B026844000/README.md) | `0100D5B026844000` | 1.0.0 (base) | 21.4.7 | Unity 6000.3.15f1 IL2CPP | NVN |
 | [STEINS;GATE RE:BOOT](01008BC024FDE000/README.md) | `01008BC024FDE000` | 1.0.3 | 20.5.17 | M2's ADV engine | NVN |
 | [Stardew Valley](0100E65002BB8000/README.md) | `0100E65002BB8000` | 1.6.15.13 | 20.5.27 | MonoGame (C# → C++ by BRUTE) | NVN |
 | [Super Mario 3D World + Bowser's Fury](010028600EBDA000/README.md) | `010028600EBDA000` | 1.2.2 | 10.4.0 | Nintendo EPD (sead / agl, NintendoWare) | NVN |

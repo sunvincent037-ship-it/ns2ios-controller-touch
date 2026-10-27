@@ -3,7 +3,7 @@
 Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not edit by hand.  
 本页由 `dm/tools/supported_list.py` 从 `dm/games/*/game.tsv` 生成，请勿手动修改。
 
-**84 款游戏。** 文件名不重要——打包器从包内容识别游戏，在下表里对上 title ID 就够了。
+**88 款游戏。** 文件名不重要——打包器从包内容识别游戏，在下表里对上 title ID 就够了。
 
 - **IPA 体积** ≈ 你的 NSP/XCI 体积 + 约 16 MB（壳本身）。游戏文件在包里是原样存放的，不再压缩。
 - **首次启动**要编译着色器：打包时只把 Switch 的着色器翻译成 Metal 源码，编译在手机上做（之后有缓存）。几秒到大作几分钟，启动时有进度页。
@@ -31,6 +31,8 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 | Bayonetta 2 | `01007960049A0000` | 1.2 |  |
 | Bayonetta 3 | `01004A4010FEA000` | 1.2.0 | 暂不支持 |
 | Big Brain Academy: Brain vs. Brain | `0100620012D6E000` | 1.2.0 | handheld |
+| Blasphemous | `0100698009C6E000` | 1.0.8 |  |
+| Blasphemous 2 | `010040801A4C8000` | 1.0.8 |  |
 | Brain Memory Training Academy | `0100F5D01DA3A000` | 1.0.0 |  |
 | Captain Toad: Treasure Tracker | `01009BF0072D4000` | 1.4.2 | handheld |
 | Catherine: Full Body | `0100BF00112C0000` | 1.0.1a |  |
@@ -75,10 +77,12 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 | Pokémon Sword | `0100ABF008968000` | 1.3.2 |  |
 | Portal | `01007BB017812000` | 1.0.3 |  |
 | Raging Loop | `010020400E1C2000` | 1.0.0 |  |
+| Return of the Obra Dinn | `010032E00E6E2000` | 1.0.1 |  |
 | Rhythm Heaven Groove | `0100D9F01D474000` | 1.0.0 | handheld |
 | ROMANCE OF THE THREE KINGDOMS 8 REMAKE | `0100C2A01A730000` | 1.1.3 |  |
 | Sea of Stars | `01008C0016544000` | 2.0.59001 |  |
 | SHIN MEGAMI TENSEI V: Vengeance | `010069C01AB82000` | 1.0.3 | 60 fps |
+| Silver Pines | `0100D5B026844000` | 1.0.0 |  |
 | Stardew Valley | `0100E65002BB8000` | 1.6.15.13 |  |
 | STEINS;GATE RE:BOOT | `01008BC024FDE000` | 1.0.3 |  |
 | Super Mario 3D World + Bowser's Fury | `010028600EBDA000` | 1.2.2 |  |
