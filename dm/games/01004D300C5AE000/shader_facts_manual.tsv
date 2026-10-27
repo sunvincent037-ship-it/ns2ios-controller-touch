@@ -1,9 +1,10 @@
 # Hand-written translation facts, merged over the generated rows of shader_facts.tsv by dm/gfx/tools/shader_split.py: key <TAB> facts JSON (same format)
 # This game has no PC version, so the translator has no fragment output types and declares every output float; Metal refuses a pipeline whose float output meets an integer attachment
 # (the host's red line then prints the row to add here).
-# 137 pixel shaders write a value into colour target 5, which this game attaches as R8Uint (its shadow / lighting-channel mask), so each one needs its output 5 declared unsigned.
-# Taken from the phone's own red lines, one pack on Windows and an iPhone, 2026-10-27 (Kirby and the Forgotten Land 1.1.0): dmsh_build.py's automatic integer entry point
-# (fs_uint) does not cover them, because they do not compute an output straight from as_type<float>(...). Repacking after a change here changes this profile's chain version.
+# 161 pixel shaders write a value into colour target 5, which this game attaches as R8Uint (its shadow / lighting-channel mask), so each one needs its output 5 declared unsigned.
+# Every key here is the host's own red line, from an iPhone running a package built on Windows (Kirby and the Forgotten Land 1.1.0): 137 in a short run,
+# then 24 more in a 28-minute one, because the line prints only the first time a pipeline is created. dmsh_build.py's automatic integer entry point
+# (fs_uint) does not cover these shaders -- they do not compute an output straight from as_type<float>(...) -- so the host falls back to this table.
 0046253ca1eb0c60	{"fout":{"5":"uint"}}
 005343020ba3db78	{"fout":{"5":"uint"}}
 023d001343e14444	{"fout":{"5":"uint"}}
