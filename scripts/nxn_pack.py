@@ -938,15 +938,22 @@ def graphics_route(prof_dir, registered=None):
     return 'nvn'
 
 
-def need_shaders(prof_dir, what):
-    route = graphics_route(prof_dir)
-    if route == 'nvn': return
-    die('%s is a %s game: its shaders are %s, so no game file holds them and shader_split.py cannot read them.\n'
-        '    Upstream captures them by booting the game on a Mac (dm/gfx/tools/%s_shaders.py translates the capture).\n'
-        '    This packer has no such step yet, so it cannot pack %s on Windows.'
-        % (what, 'Vulkan' if route == 'vulkan' else 'OpenGL',
-           'generated at run time' if route == 'vulkan' else 'put together at run time',
-           'vk' if route == 'vulkan' else 'gl', what))
+def vk_capture_hint(text):
+    """What vk_shaders.py's "no SPIR-V files" means when a game builds its shaders in memory instead of shipping them.
+
+    vk_shaders.py says the same two words whether the RomFS is genuinely empty of SPIR-V or this title generates its
+    modules at run time (Super Mario Galaxy, 3797 of them), and on our route there is no Mac to capture them with: the
+    capture is a run on the phone, which the packer can prepare but not perform. Only that message is replaced -- every
+    other failure keeps the tool's own words, exit code and log tail.
+    """
+    if 'no SPIR-V files' in text:
+        return ('this game builds its shaders while it runs, so no file in its RomFS holds a shader to translate.\n'
+                '    They are captured once on the phone, not on a Mac:\n'
+                '      1. pack it with --no-shaders (the package boots and plays its music; it draws nothing)\n'
+                '      2. run it with Documents/env.txt holding DM_VK_CAPTURE=<a writable folder>\n'
+                '      3. pack again with --vk-capture <the folder it wrote>\n'
+                '    docs/CAPTURE.md has the procedure (docs/CAPTURE.zh-CN.md in Chinese).')
+    return None
 
 
 def shader_split_hint(text):
@@ -969,7 +976,8 @@ def shader_split_hint(text):
 def step_shaders(game, prof_dir, tables, work, tid, force=False):
     """shader_split.py: pull the shaders out of the game files and produce the four tables. The rows must match the
     profile's (that is how we know the files are the version the profile was built from)."""
-    need_shaders(prof_dir, 'this game')
+    # Only NVN games come here (main(): `if route == 'nvn'`): a GL or Vulkan game's shaders are not in its files, and the
+    # refusal for those lives there, next to the --no-shaders / --gl-capture / --vk-capture runs it points at.
     pkg, tb = work / 'shader' / 'pkg', work / 'shader' / 'tables'
     if not force and (pkg / 'index.tsv').is_file() and all((tb / n).is_file() for n in tables):
         say('shader split already done'); return pkg, tb
@@ -1532,7 +1540,8 @@ def main():
         root = work / 'build' / 'vkroot'
         ins = [game / 'RomFS'] + ([Path(a.vk_capture).resolve()] if a.vk_capture else [])
         run([PY, GFX / 'vk_shaders.py', *ins, root, '--source-only'],
-            log=work / 'logs' / 'vk_shaders.log', what='translating the SPIR-V to Metal source')
+            log=work / 'logs' / 'vk_shaders.log', what='translating the SPIR-V to Metal source',
+            hint=vk_capture_hint)
         vk_out = root / 'vk'
         if not (vk_out / 'vk_shaders.tsv').is_file(): die('vk_shaders.py wrote no table under %s' % vk_out)
         tbl = [l for l in (vk_out / 'vk_shaders.tsv').read_text(encoding='utf-8').splitlines() if l and not l.startswith('#')]
