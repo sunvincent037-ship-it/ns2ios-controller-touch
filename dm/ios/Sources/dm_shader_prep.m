@@ -15,7 +15,9 @@
 #import <UIKit/UIKit.h>
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include "dm_shader_learn.h"
 
 static void pl(NSString *s) { fprintf(stderr, "[dm] %s\n", s.UTF8String); }
 static int lg(void) { NSString *l = NSLocale.preferredLanguages.firstObject; return [l hasPrefix:@"zh"] ? 1 : [l hasPrefix:@"es"] ? 2 : 0; }   // 系统首选语言：1 中文 / 2 西语 / 0 其余英文 | System preferred language: 1 Chinese / 2 Spanish / 0 English otherwise
@@ -112,6 +114,18 @@ int dm_shader_prep_begin(void (^done)(void)) {
                 NSString *txt = [NSString stringWithContentsOfFile:p encoding:NSUTF8StringEncoding error:nil]; NSError *e = nil;
                 id<MTLLibrary> l = txt ? [dev newLibraryWithSource:txt options:nil error:&e] : nil;   // 与游戏里建库用的是同一个调用、同样的参数：缓存才对得上 | the same call with the same arguments as the game uses to build the library: only then does the cache match
                 if (!l && atomic_fetch_add(&bad, 1) < 5) pl([NSString stringWithFormat:@"【红】着色器准备：%@ 编不过：%@", p.lastPathComponent, e.localizedDescription ?: @"读不了"]);
+                // 这个着色器以前被拒过管线：把它「输出声明成整数」的版本也编一遍（同一个调用、同样的文本，游戏里建库时缓存直接命中，不再卡）
+                // This shader had a pipeline refused before, so the version with those outputs declared integer is compiled here
+                // too: the game then builds that library out of the cache instead of stalling on it the first time it is drawn.
+                unsigned lm = l ? dm_shader_learn_mask(p.lastPathComponent.stringByDeletingPathExtension.UTF8String) : 0;
+                if (lm) {
+                    const char *cs = txt.UTF8String; size_t on = 0;
+                    char *w = dm_shader_learn_rewrite(cs, strlen(cs), lm, &on);
+                    NSString *t2 = w ? [[NSString alloc] initWithBytes:w length:on encoding:NSUTF8StringEncoding] : nil;
+                    free(w);
+                    NSError *e2 = nil; id<MTLLibrary> l2 = t2 ? [dev newLibraryWithSource:t2 options:nil error:&e2] : nil;
+                    if (!l2 && atomic_fetch_add(&bad, 1) < 5) pl([NSString stringWithFormat:@"【红】着色器准备：%@ 的整数输出版本编不过：%@", p.lastPathComponent, e2.localizedDescription ?: @"改写没做成"]);
+                }
                 int n = atomic_fetch_add(&fin, 1) + 1; if (n % 500 == 0) pl([NSString stringWithFormat:@"着色器准备：%d / %d，已用 %.0f 秒，温控档位 %ld", n, total, CFAbsoluteTimeGetCurrent() - t0, (long)NSProcessInfo.processInfo.thermalState]);
                 dispatch_semaphore_signal(sem); } }); }
         dispatch_group_wait(g, DISPATCH_TIME_FOREVER);

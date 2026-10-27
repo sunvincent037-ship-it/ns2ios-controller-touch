@@ -5376,6 +5376,150 @@ static id<MTLRenderPipelineState> pso_build_ex(MTLRenderPipelineDescriptor *d, N
     g_pt_spec_ns += bp_now() - ts;
     return ps;
 }
+#ifdef DM_SHELL
+#include "../../ios/Sources/dm_shader_learn.h"
+// ---- A pipeline the MTLDevice refused: built again from a shader with the output types this pass needs -------------
+// dm_shader_learn.h has the whole story; in short: the pass binds colour slot N as an integer target, the shader declares
+// it float, and Metal refuses the pipeline where the console's hardware converts the value as it writes it. This rewrites
+// that one declaration in the shader's own source, converts the values written to it, compiles the source again and
+// builds the pipeline from the result. The row is kept in Documents, so the next launch's shader preparation compiles it
+// that way from the start and this never runs for that shader again.
+// It reads the source the package holds: our route puts MSL there instead of a compiled library. A package with real
+// metallib has nothing to rewrite, and the line says so instead of pretending to have tried.
+static NSMutableDictionary<NSString *, id> *g_learn_fn;   // key -> LearnFn: a function built from the rewritten source
+static os_unfair_lock g_learn_lock = OS_UNFAIR_LOCK_INIT;
+@interface LearnFn : NSObject { @public id<MTLFunction> fn; unsigned mask; } @end
+@implementation LearnFn @end
+static int pf_int_kind(MTLPixelFormat f);
+// The colour slots this pipeline needs declared integer: the formats the pass bound, for the outputs the shader writes
+static unsigned learn_mask_of(NvShader *fs, const pso_key *k, int merged) {
+    unsigned m = 0;
+    for (int i = 0; i < 8; i++) {
+        if (!k->cfmt[i]) continue;
+        int l = merged ? k->lmap[i] : i;
+        if (l > 7) continue;
+        if (fs->rf.color_known && !(fs->rf.color_mask >> l & 1)) continue;   // an output this shader does not write
+        int kind = pf_int_kind((MTLPixelFormat)k->cfmt[i]);
+        if (kind == 1) m |= 1u << l;
+        else if (kind == 2) m |= 1u << (8 + l);
+    }
+    return m;
+}
+static void learn_slots(unsigned mask, char *out, size_t n) {
+    size_t o = 0; out[0] = 0;
+    for (int s = 0; s < 8; s++) if (mask >> s & 1) o += (size_t)snprintf(out + o, o < n ? n - o : 0, "%s%d", o ? "," : "", s);
+    for (int s = 0; s < 8; s++) if (mask >> (8 + s) & 1) o += (size_t)snprintf(out + o, o < n ? n - o : 0, "%ss%d", o ? "," : "", s);
+}
+// The shader's entry point built from its own source with those slots declared integer, compiled once and kept
+static id<MTLFunction> learn_fn(NvShader *fs, unsigned mask) {
+    NSString *k = @(fs->key);
+    os_unfair_lock_lock(&g_learn_lock);
+    LearnFn *c = g_learn_fn[k];
+    os_unfair_lock_unlock(&g_learn_lock);
+    if (c && c->mask == mask) return c->fn;
+    NSString *path = [NSString stringWithFormat:@"%@/%@.metallib", g_msl_dir, fs->key];
+    NSString *txt = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    if (!txt) { MLOG("[RED] shader %s: no source to learn from at %s (a package holding compiled libraries cannot be taught)", fs->key, path.UTF8String); return nil; }
+    if (![txt hasPrefix:@"#"]) { MLOG("[RED] shader %s: %s is a compiled library, not source: its output types cannot be rewritten", fs->key, path.lastPathComponent.UTF8String); return nil; }
+    size_t on = 0;
+    char *w = dm_shader_learn_rewrite(txt.UTF8String, strlen(txt.UTF8String), mask, &on);
+    if (!w) { MLOG("[RED] shader %s: its source declares none of the slots this pass binds as float (already fixed, or a shape the rewrite leaves alone)", fs->key); return nil; }
+    NSString *t2 = [[NSString alloc] initWithBytes:w length:on encoding:NSUTF8StringEncoding];
+    free(w);
+    if (!t2) { MLOG("[RED] shader %s: the rewritten source is not text", fs->key); return nil; }
+    NSError *ce = nil;
+    id<MTLLibrary> lib = [g_dev newLibraryWithSource:t2 options:nil error:&ce];   // the same call dm_shader_prep makes: the cache answers at once
+    if (!lib) { MLOG("[RED] shader %s: the rewritten source does not compile: %s", fs->key, ce.localizedDescription.UTF8String); return nil; }
+    id<MTLFunction> fn = fn4_note([lib newFunctionWithName:fs->ventry], lib, fs->ventry, nil);
+    if (!fn) { MLOG("[RED] shader %s: the rewritten source has no %s", fs->key, fs->ventry.UTF8String); return nil; }
+    LearnFn *n = [LearnFn new]; n->fn = fn; n->mask = mask;
+    os_unfair_lock_lock(&g_learn_lock);
+    if (!g_learn_fn) g_learn_fn = [NSMutableDictionary dictionary];
+    g_learn_fn[k] = n;
+    os_unfair_lock_unlock(&g_learn_lock);
+    return fn;
+}
+// Called where a pipeline failed to build, with the descriptor that failed: nil unless the failure is one an output type
+// can explain, and nil again unless the shader could be compiled with the types the pass needs.
+static id<MTLRenderPipelineState> pso_learn(NvShader *fs, const pso_key *k, MTLRenderPipelineDescriptor *d, NSError **e) {
+    if (!dm_shader_learn_enabled() || !fs || fs->stage != 1 || k->fsfn || !g_msl_dir) return nil;
+    unsigned m = learn_mask_of(fs, k, g_pso_lmap != NULL);
+    if (!m) return nil;   // no integer attachment this shader writes: the refusal has another cause
+    id<MTLFunction> fn = learn_fn(fs, m);
+    if (!fn) return nil;
+    d.fragmentFunction = fn;
+    id<MTLRenderPipelineState> ps = pso_build_ex(d, e, 1);
+    if (!ps) return nil;
+    char slots[32], why[64];
+    learn_slots(m, slots, sizeof slots);
+    snprintf(why, sizeof why, "colour %s", slots);
+    dm_shader_learn_note(fs->key, m, why);
+    MLOG("shader %s: colour %s declared integer and compiled again from its source: the pipeline exists, learned for good", fs->key, slots);
+    return ps;
+}
+#endif
+// ---- A pipeline the MTLDevice refuses: built again through a Metal 4 base ----
+// On the Mac every render pipeline is a Metal 4 base whose colour attachments (format, blending, factors, operations, write mask) are unspecialized, specialized with the pass's
+// own formats. On iOS the default is the MTLDevice path (pso4_on: the archive's footprint), and there Metal compares each fragment output's type with the format of the attachment
+// it writes. A game whose shader declares a float output for an integer attachment is refused for that alone and its draw disappears: Kirby and the Forgotten Land writes colour 5
+// (R8Uint) from float4 outputs, a value conversion NVN makes as it writes and Metal will not.
+// A pipeline the MTLDevice refuses is therefore built once more through a base of our own, as the Mac builds every pipeline: the base has no attachment format for Metal to
+// compare the shader's output types against, and specializing it with the pass's formats leaves the value conversion to the driver. The shader is not touched, no game is named
+// and no facts table is needed: any pipeline the MTLDevice refuses comes here (DM_PSO_BASE_RETRY=0 turns it off).
+// The bases are kept in g_pbase_fb, one per pbase_key, with no archive and no capture: only refused pipelines come here, a few hundred at most. The log names the first few and
+// then every 50th, so a device log shows whether this ran and whether it worked.
+static id<MTL4Compiler> g_comp4_fb;
+static nvn_hmap g_pbase_fb = {.klen = sizeof(pbase_key)};
+static _Atomic int g_fb_ok, g_fb_no;   // built through a base here / not (a base or its specialization was refused)
+static int fb_off(void) {
+    static int v = -1;
+    if (v < 0) { const char *e = getenv("DM_PSO_BASE_RETRY"); v = e && !strcmp(e, "0");
+        if (v) MLOG("DM_PSO_BASE_RETRY=0: a pipeline the MTLDevice refuses is not built again through a Metal 4 base"); }
+    return v;
+}
+static id<MTLRenderPipelineState> pso_build_base(MTLRenderPipelineDescriptor *d, NSError **e) {
+    (void)e;   // *e keeps the MTLDevice's message: it names what the pipeline was refused for
+    if (fb_off() || pso4_on()) return nil;   // with the MTL4 path on, the base itself was refused, and a second one would be refused the same way
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        if (![(id)g_dev respondsToSelector:@selector(newCompilerWithDescriptor:error:)]) return;
+        NSError *ce = nil; g_comp4_fb = [g_dev newCompilerWithDescriptor:[MTL4CompilerDescriptor new] error:&ce];
+        if (g_comp4_fb) MLOG("a pipeline the MTLDevice refuses is built again through a Metal 4 base (unspecialized colour attachments, then specialized)");
+        else MLOG("[RED] no Metal 4 compiler for the base a refused pipeline is built again through (%s): those draws keep disappearing", ce.localizedDescription.UTF8String);
+    });
+    if (!g_comp4_fb) return nil;
+    MTL4RenderPipelineDescriptor *b = pso_desc4(d, d.rasterizationEnabled);
+    if (!b) return nil;   // a function with no Metal 4 descriptor (fn4_of): the MTLDevice path is all there is
+    pbase_key bk; pbase_key_of(d, &bk);
+    os_unfair_lock_lock(&g_pbase_lock);
+    id<MTLRenderPipelineState> base = hm_get_id(&g_pbase_fb, &bk);
+    os_unfair_lock_unlock(&g_pbase_lock);
+    if (!base) {
+        NSError *be = nil;
+        base = [g_comp4_fb newRenderPipelineStateWithDescriptor:b compilerTaskOptions:nil error:&be];
+        if (!base) {
+            int n = atomic_fetch_add(&g_fb_no, 1) + 1;
+            if (n <= 8 || !(n % 50)) MLOG("[RED] a refused pipeline's base was refused as well (%d): %s", n, be.localizedDescription.UTF8String);
+            return nil;
+        }
+        os_unfair_lock_lock(&g_pbase_lock); hm_put_id(&g_pbase_fb, &bk, base); os_unfair_lock_unlock(&g_pbase_lock);
+    }
+    id<MTLRenderPipelineState> ps = base;   // without rasterization there is no colour state to specialize: the base is the pipeline
+    if (d.rasterizationEnabled) {
+        MTL4RenderPipelineDescriptor *s = (MTL4RenderPipelineDescriptor *)[base newRenderPipelineDescriptorForSpecialization];
+        for (int i = 0; i < 8; i++) pso_col4(s.colorAttachments[i], d.colorAttachments[i]);
+        NSError *se = nil; ps = [g_comp4_fb newRenderPipelineStateBySpecializationWithDescriptor:s pipeline:base error:&se];
+        if (!ps) {
+            int n = atomic_fetch_add(&g_fb_no, 1) + 1;
+            if (n <= 8 || !(n % 50)) MLOG("[RED] a refused pipeline's base was made but its specialization was refused (%d): %s", n, se.localizedDescription.UTF8String);
+            return nil;
+        }
+    }
+    { int n = atomic_fetch_add(&g_fb_ok, 1) + 1;
+      if (n <= 8 || !(n % 50)) MLOG("pipeline built through a Metal 4 base after the MTLDevice refused it (%d): fragment %s, %u samples, colour attachment 0 %#x", n,
+                                     d.fragmentFunction ? d.fragmentFunction.name.UTF8String : "-", (unsigned)d.rasterSampleCount, (unsigned)d.colorAttachments[0].pixelFormat); }
+    return ps;
+}
 static id<MTLRenderPipelineState> pso_build(MTLRenderPipelineDescriptor *d, NSError **e) { return pso_build_ex(d, e, 1); }
 // Pipeline key: current state S + pass formats (normal pass; a merged pass additionally carries lmap / specialized function, filled in by pso_get)
 static void pso_key_fill(pso_key *k, NvShader *vs, NvShader *fs, const uint32_t cfmt[8], uint32_t dfmt, uint32_t sfmt, uint32_t samples, int lmap) {
@@ -5819,6 +5963,13 @@ static __unsafe_unretained id<MTLRenderPipelineState> pso_get_(NvProg *pr, MTLRe
             vs->layer_out = 1; MLOG("vertex shader %s writes the layer: its pipelines get the triangle input primitive class", vs->key);
             e = nil; d = pso_desc(&k, vs, fs, ms_fn ? ms_fn : g_pso_fsfn, g_pso_lmap != NULL); ps = pso_build(d, &e);
         }
+#ifdef DM_SHELL
+        // The pass binds an integer target that this shader writes from a float output: compile the shader again with
+        // that declaration fixed, keep the row, and use the pipeline that comes out of it (dm_shader_learn.h)
+        if (!ps) ps = pso_learn(fs, &k, d, &e);
+#endif
+        // Still nothing: a Metal 4 base of our own, whose colour attachments Metal cannot check the output types against
+        if (!ps) ps = pso_build_base(d, &e);
     }
     if (!took) {   // the draw waited (built here, made from its queued build, or waited for its running build)
         uint64_t w = bp_now() - bt - (g_pt_pred_ns - pred0); g_pw_n[why]++; g_pw_ns[why] += w;
