@@ -973,6 +973,27 @@ def shader_split_hint(text):
     return None
 
 
+def oodle_archives(game, mods):
+    """The reasons this extraction keeps its shaders where only the game's own Oodle decoder reaches them, or {}.
+
+    Two of profile_guess.build_sources' answers name archives the shader split reads through that decoder running in the
+    Mac host (dm/host/hle_oodle.c, DM_OODLE_SERVE): Trinity packs, PlatinumGames PKZ and Game Freak GFPAK archives with
+    Oodle Kraken entries (oodle_packs), and Unreal legacy paks with the shaders inline (ue_legacy, LZ5). Until now they
+    were only met at the shader step, after the extraction and a rewrite of main and sdk -- minutes of work for an answer
+    the file headers already hold. The scan is upstream's own (checked against every profile), reads headers only, and
+    costs one walk of the RomFS. The other answers are left to their own messages: ue_decode wants the game booted on a
+    Mac, and the three captures are what docs/CAPTURE.md answers.
+    """
+    sys.path.insert(0, str(DM / 'games'))
+    try:
+        import profile_guess
+        src = profile_guess.build_sources(game / 'ExeFS', game / 'RomFS', mods)
+    except Exception as e:                                    # noqa: BLE001 - any failure here only costs the early stop
+        warn('could not scan the RomFS for Oodle-compressed shader archives (%s): packing on as before' % e)
+        return {}
+    return {k: src[k][1] for k in ('oodle_packs', 'ue_legacy') if src.get(k) and src[k][0]}
+
+
 def step_shaders(game, prof_dir, tables, work, tid, force=False):
     """shader_split.py: pull the shaders out of the game files and produce the four tables. The rows must match the
     profile's (that is how we know the files are the version the profile was built from)."""
@@ -1317,6 +1338,9 @@ def main():
     ap.add_argument('--force', action='store_true', help='redo steps whose output already exists')
     ap.add_argument('--no-shaders', action='store_true', help='a GL/Vulkan game: build it without a shader library, so it boots and captures its own shaders (no picture until they are packed in)')
     ap.add_argument('--allow-damaged', action='store_true', help='read files that fail their hash check as they are: a dump with a few bad files (a couple of music tracks) still packs')
+    ap.add_argument('--skip-oodle-check', action='store_true',
+                    help='do not stop early for a game whose shaders sit in Oodle- or LZ5-compressed archives (it then stops '
+                         'at the shader step instead). Only useful when the scan is wrong about your files')
     ap.add_argument('--diagnose', action='store_true', help='extract, rewrite and build the Mac host, then stop: for running the game under lldb (macOS)')
     ap.add_argument('--capture-gl', default='', help='boot the game in the Mac host and capture the GLSL it assembles at run time, then stop (macOS, Apple silicon)')
     ap.add_argument('--vk-capture', default='', metavar='FOLDER',
@@ -1456,6 +1480,20 @@ def main():
     aoc_dir = step_aoc(nx, keys, fam['dlc'], work, tid, a.force, a.allow_damaged)
     if a.stop_after == 'extract': return say('stopped after extract')
     game = dirs[pkg]
+    # Refused here rather than at the shader step: this route has no Mac host, so an archive that only the game's own
+    # Oodle decoder unpacks is the end of the road, and the extraction and the rewrite that used to run first were
+    # several minutes of work for an answer the RomFS headers already hold.
+    if not a.skip_oodle_check:
+        why = oodle_archives(game, mods)
+        if why:
+            die('this game keeps its shaders in archives that only its own Oodle decoder can unpack:\n'
+                + ''.join('    %s: %s\n' % kv for kv in why.items()) +
+                '    Oodle is not open source. The decoder is the copy linked into the game\'s own code, and it is run\n'
+                '    inside the Mac host (dm/host/hle_oodle.c) -- which needs a Mac with Apple silicon, since it executes\n'
+                '    the game\'s ARM64 modules. This packer drives the Windows executables in tools/ and has no such host\n'
+                '    to borrow the decoder from, so this title cannot be packed by this route, on any machine.\n'
+                '    Games that pack straight from Windows: docs/SUPPORTED.md.\n'
+                '    --skip-oodle-check packs on and stops at the shader step as before.')
     derived_dir = None
     reg = gdir
     bad, had_row = check_build_ids(game, rows, pkg, mods)
