@@ -1077,7 +1077,7 @@ def env_for(rows):
     nninitStartup with nothing in the log to say why.
     """
     pairs = [('mem_reserve', 'DM_MEM_RESERVE'), ('mem_alias', 'DM_MEM_ALIAS'), ('mem_stack', 'DM_MEM_STACK'),
-             ('app_pool', 'DM_APP_POOL'), ('mem_used', 'DM_MEM_USED')]
+             ('app_pool', 'DM_APP_POOL'), ('mem_used', 'DM_MEM_USED'), ('stdalloc_cap', 'DM_STDALLOC_CAP')]
     lines = ['%s=%s' % (ev, one(rows, k)) for k, ev in pairs if one(rows, k)]
     ge = one(rows, 'game_env')
     if ge: lines.append('DM_GAME_ENV=' + ge)
