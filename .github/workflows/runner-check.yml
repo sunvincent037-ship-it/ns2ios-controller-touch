@@ -1,0 +1,17 @@
+name: Hosted runner check
+on:
+  push:
+    branches: [input-build-diagnostic]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check hosted runner and portable input logic
+        run: |
+          uname -s
+          cc -Wall -Wextra -Werror dm/host/tests/t_ios_pad.c -o /tmp/t_ios_pad
+          /tmp/t_ios_pad
