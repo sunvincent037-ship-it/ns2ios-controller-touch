@@ -27,3 +27,13 @@ Kirby: add the 24 colour-5 rows a 28-minute run printed	卡比探索发现：真
 Sync the packer's copies with 84ca44b: three more games and Mario Kart's 4.0.1	打包器的副本同步到上游 84ca44b：40 个文件更新、38 个新增（13 Sentinels 日版、FF 水晶编年史、独角兽霸主亚洲版三款新 profile，马造 8 DX 认到 4.0.1，几款加了 smoke 路由，手柄陀螺仪的 motion_* 头与 hid 一起进来）。支持列表 81 → 84 款。判据照旧：带 `needs_mac_shaders` 的 5 个 profile 还原后复跑恰好 `5 differ, 0 upstream-only`
 Move the base to 4397e2e: Obra Dinn, both Blasphemous games and Silver Pines	基座移到上游 4397e2e（今晚 12 个提交，间隔只有十几分钟）：`shader_split.py` 被 Obra Dinn 那个提交改了 49 行，三方合并后重生成补丁（上游新行一行没丢）；打包器副本同步 24 更新 / 39 新增，支持列表 84 → 88 款（Return of the Obra Dinn、Blasphemous、Blasphemous 2、Silver Pines）
 Kirby: declare colour 5 unsigned for every pixel shader that writes it, not just the ones a run reached	卡比：第 5 个颜色目标（R8Uint 掩码）**对所有写它的 5,800 个像素着色器**都声明成整数，不再只覆盖真机走到过的 323 个。依据是结构性的：全表**没有任何着色器写 color(6) / color(7)**，说明第 5 槽是最后一个附件、格式唯一；而 323 个真机样本全部落在同一结论上。若某个 pass 把槽 5 绑成浮点，管线会被**反向**拒绝并在日志里点名，删掉那几行即可
+Kirby: declare colour 5 unsigned for every pixel shader that writes it, not just the ones a run reached	卡比：把所有写 color(5) 的像素着色器一次声明成无符号，而不是只声明几次运行碰巧走到的那几个（这一版已被下面的运行时方案取代，那张 5,800 行的表也删了）
+The host learns a shader's output types from the pipeline Metal refused	宿主从被 Metal 拒绝的管线里学会一个着色器的输出类型：改写着色器源码里那一个输出声明、写入处补上类型转换、当场重编一次，学到的一行落进 Documents/dm_shader_learn.tsv
+Say the learn interface in nvn_mtl.m instead of including it	在 nvn_mtl.m 里直接声明 learn 接口，不再 #include 头文件：这个文件是从 Gen/src 的符号链接参与编译的，相对路径会解析到错误的目录
+One way to fix a refused pipeline: learn the output types, not a fallback	被拒的管线只留一条修法：学会输出类型，不做回退——同时把 Metal 4 base 重试那条路线整条撤掉
+The learn path handed a char[] to %@: the first refused draw crashed	**真机闪退修复**：learn 路径把 char[24] 交给了 %@，CFString 拿裸指针去 objc_opt_respondsToSelector，第一次被拒的 draw 就 SIGTRAP。改成 %s。这一条是把上面那个方案真正跑通的关键
+Move the base to 6ea9b5b: eleven patches, a layout merge, and the packer's copies	基座移到上游 6ea9b5b：我们 patch 的 19 个文件里 11 个被上游动过，全部三方合并（不只是 4 个打不上的——能打上的补丁会把上游的改动悄悄改回去）；`g_reserve` 两边同名不同义，拆成 `g_mem_reserve`（profile 值）与 `g_reserve`（实际块大小）；上游新加的 `stdalloc_cap` 只有编译期常量，Absolum 的 2.5 GB 会失效，改为 `DM_STDALLOC_CAP` 由打包器写进 dm/env.txt；打包器副本与上游对齐（141 改、56 增、2 个上游已删）
+91 games after the base move (the packer's profiles came level with upstream)	移基座后支持列表 **91 款**（原 88 款），打包器读的 profile 与壳同代
+Base to 148cc07: nvn_mtl.m moved once more, for the Mac window's frame latency	基座再对齐到上游 148cc07：`nvn_mtl.m` 当天又被改了一次（Mac 窗口全屏下的帧延迟），重新合并并重生补丁
+Base to 337186c: a test file and a doc, no patched file moved	基座对齐到上游 337186c：只有一个测试文件与一份文档变动，我们修补的文件都没动，补丁不用重生成
+Restore needs_mac_shaders on the five Oodle/LZ5 profiles the sync overwrote	还原 5 个 Oodle/LZ5 profile 上的 `needs_mac_shaders`：打包器副本同步会把它冲掉，支持列表靠这个键标「暂不支持」
