@@ -39,3 +39,7 @@ Base to 337186c: a test file and a doc, no patched file moved	基座对齐到上
 Restore needs_mac_shaders on the five Oodle/LZ5 profiles the sync overwrote	还原 5 个 Oodle/LZ5 profile 上的 `needs_mac_shaders`：打包器副本同步会把它冲掉，支持列表靠这个键标「暂不支持」
 The Chinese half of the notes for the ten commits this release lists	这一版列出的十条提交，其中文说明补进 `.github/release-notes.zh.tsv`
 Translate the notes commit itself, so the next release lists no untranslated row	连这一条提交自己的中文也补上，免得下一版又冒出一行「未翻译」
+Base to 6c4a81d: NVN frame capture and replay, no conflict	基座对齐到上游 6c4a81d：NVN 帧捕获与重放（#473）干净合入——`hle_nvn.c` 只多一个 include 和两个 hook 调用，`nvn_capture.h` 随打包器副本同步到位
+Stop before the rewrite for a game whose shaders only its own Oodle decoder unpacks	**写不了的游戏不再白等**：着色器压在 Oodle / LZ5 容器里的那 5 款，现在**解包完、读到文件头就停**（原先要跑完整轮解包加改写才在拆着色器那步停下，大作白等几分钟）。判断复用上游自己的容器扫描，`--skip-oodle-check` 可绕过
+Base to 4f151c7: Sparks of Hope's slot pool, no patched file moved	基座对齐到上游 4f151c7（Sparks of Hope 缩掉一块闲置的 1.06 GB slot pool，把地址空间让给 UI context，issue #483）：这一轮没有补丁文件被上游动到
+Base to 6ba3adc: the texture read path, and the packer's copies level again	基座对齐到上游 6ba3adc：`nvn_mtl.m` 的 ReadTexels 改成走 sparse pool 的页表（直读存储会让宿主 SIGBUS，#471），按上游新结构合并、只保留我们的运行期开关；打包器副本一并对齐（68 改、37 增），支持列表 **94 款**
