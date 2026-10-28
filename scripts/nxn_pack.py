@@ -656,6 +656,43 @@ def check_build_ids(game, rows, ver, mods):
     return bad, True
 
 
+def identify_version(game, rows):
+    """Which version the extracted files are, read from the files: the profile's build rows record the ExeFS modules'
+    build IDs, and control.nacp carries the display version. Returns 'v<N>', or None when no row matches.
+
+    The file name does not decide this, the same as it does not decide the title ID (the ticket inside the package), the
+    kind (the CNMT type, then the title ID's low bits) or the DLC index. It matters for an update named with a bare
+    [65536] or with nothing at all, whose CNMT is encrypted: after unpacking, the modules say exactly which build it is.
+    """
+    exefs = game / 'ExeFS'
+    got = {}
+    for p in (sorted(exefs.iterdir()) if exefs.is_dir() else []):
+        # Every module, not the profile's list: a row registers more modules than the profile loads (Echoes of Wisdom's
+        # row names subsdk0 and subsdk1 beside main and sdk), and rtld / main.npdm are not modules at all.
+        if not p.is_file() or p.name in ('rtld', 'main.npdm'): continue
+        try: got[p.name] = module_build_id(p)
+        except OSError: pass
+    disp = None
+    if (game / 'control.nacp').is_file():
+        sys.path.insert(0, str(TOOLS))
+        try:
+            import nacp
+            disp = (nacp.version(game / 'control.nacp') or '').strip() or None
+        except Exception:
+            disp = None
+    rows_b = [l.split('\t') for l in rows.get('build', [])]
+    # The build IDs first: every ID the row registers has to match. A row that names no ID proves nothing, and a module
+    # the row registers but the dump lacks (Absolum 1.0.4 has no subsdk2) must not match either -- hence all(), not any().
+    for f in rows_b:
+        want = {k: v for k, v in (i.split('=', 1) for i in f[2:] if '=' in i)}
+        if want and got and all(got.get(k) == v for k, v in want.items()): return f[0]
+    # Then the display version, which the profile records beside the version it was brought up on ("1.1.0").
+    if disp:
+        for f in rows_b:
+            if len(f) > 1 and f[1].strip() == disp: return f[0]
+    return None
+
+
 def derive_profile(gdir, tid, ver, game, mods, dest, disp):
     """The profile for a version it was not brought up on, written into `dest` (outside the repository).
 
@@ -1443,14 +1480,13 @@ def main():
     if not is_dump and pkg != 'v0' and pkg not in fam['updates']:
         die('no update for %s in %s (the folder has: %s)'
             % (pkg, folder, ', '.join(upds) if upds else 'only the base game'))
-    if pkg not in builds:
-        why = ''
-        if pkg == UNKNOWN_VER:
-            why = ('\n    The update\'s file name has no [v<N>] tag and its package keeps only an encrypted cnmt.nca, so its\n'
-                   '    version cannot be read. Renaming the file with one in the name (say [v65536]) lets it be matched\n'
-                   '    against the profile; the pack goes on either way, with a profile derived from this version\'s files.')
+    if pkg == UNKNOWN_VER:
+        # Not a warning: this is settled further down, from the unpacked files (identify_version), never from the name.
+        say('this update has no [v<N>] tag in its name and keeps its CNMT encrypted (cnmt.nca): the version is read from '
+            'the files once they are unpacked')
+    elif pkg not in builds:
         warn('%s is not a version this profile registers (%s): it was never tested, and fixes made for a tested version '
-             '(60 fps, for instance) do not apply to it%s' % (pkg, ', '.join(sorted(builds)) or 'none', why))
+             '(60 fps, for instance) do not apply to it' % (pkg, ', '.join(sorted(builds)) or 'none'))
     elif pkg not in need:
         warn('%s is registered, but the shader tables were built from %s -- shaders this version adds may be missing'
              % (pkg, ' '.join(need)))
@@ -1491,6 +1527,18 @@ def main():
     aoc_dir = step_aoc(nx, keys, fam['dlc'], work, tid, a.force, a.allow_damaged)
     if a.stop_after == 'extract': return say('stopped after extract')
     game = dirs[pkg]
+    if pkg == UNKNOWN_VER:
+        # Now the files are here, so the version comes from them: the ExeFS modules' build IDs, which the profile records
+        # per build. The work folder keeps the label it was extracted under -- the name of a directory is no more part of
+        # the identification than the name of the package was.
+        try: found = identify_version(game, rows)
+        except Exception as e: found = None; warn('cannot read the version from the unpacked files (%s)' % e)
+        if found:
+            say('the unpacked files are %s: their module build IDs are that profile build row' % found)
+            pkg = found
+        else:
+            warn('the unpacked files match no build row in %s: packing them from a profile derived from them'
+                 % gdir.name)
     # Refused here rather than at the shader step: this route has no Mac host, so an archive that only the game's own
     # Oodle decoder unpacks is the end of the road, and the extraction and the rewrite that used to run first were
     # several minutes of work for an answer the RomFS headers already hold.
