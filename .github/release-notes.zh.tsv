@@ -44,3 +44,4 @@ Stop before the rewrite for a game whose shaders only its own Oodle decoder unpa
 Base to 4f151c7: Sparks of Hope's slot pool, no patched file moved	基座对齐到上游 4f151c7（Sparks of Hope 缩掉一块闲置的 1.06 GB slot pool，把地址空间让给 UI context，issue #483）：这一轮没有补丁文件被上游动到
 Base to 6ba3adc: the texture read path, and the packer's copies level again	基座对齐到上游 6ba3adc：`nvn_mtl.m` 的 ReadTexels 改成走 sparse pool 的页表（直读存储会让宿主 SIGBUS，#471），按上游新结构合并、只保留我们的运行期开关；打包器副本一并对齐（68 改、37 增），支持列表 **94 款**
 The Chinese half of the notes for the five commits a release would list now	这一版要列出的五条提交，其中文说明补进 `.github/release-notes.zh.tsv`（预防发版时冒出「未翻译」）
+Base to 062cd06: the controller's Home and Capture stay ours on iOS	基座对齐到上游 062cd06：手柄的 Home / Capture 键不再被 iOS 当成系统手势（原先 Home 会呼出游戏 overlay、Capture 会截图），`DmGamepad.m` 三行改动干净合并；打包器副本一并对齐（6 改）
