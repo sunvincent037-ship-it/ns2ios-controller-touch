@@ -2,7 +2,7 @@ name: Build controller and touch fix
 
 on:
   push:
-    branches: [controller-touch-fix]
+    branches: [controller-touch-fix-intel]
   workflow_dispatch:
 
 permissions:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
