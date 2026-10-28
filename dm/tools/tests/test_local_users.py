@@ -41,6 +41,9 @@ static size_t test_strlcpy(char *dst, const char *src, size_t cap) {
     if (cap) { size_t k = n < cap - 1 ? n : cap - 1; memcpy(dst, src, k); dst[k] = 0; }
     return n;
 }
+#ifdef strlcpy
+#undef strlcpy
+#endif
 #define strlcpy test_strlcpy
 static char mounted[2048];
 static int mount_calls;
