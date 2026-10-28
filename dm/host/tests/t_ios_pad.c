@@ -8,7 +8,7 @@
 int main(void) {
     int checks = 0;
     pad_slots slots = {0};
-    char xbox, dualsense, reconnected;
+    char xbox = 0, dualsense = 0, reconnected = 0;
     CHECK(pad_slot_take(&slots, &xbox, "Xbox Wireless Controller") == 0);
     CHECK(pad_slot_take(&slots, &dualsense, "DualSense Wireless Controller") == 1);
     CHECK(pad_slot_mask(&slots) == 3);
