@@ -45,3 +45,4 @@ Base to 4f151c7: Sparks of Hope's slot pool, no patched file moved	基座对齐�
 Base to 6ba3adc: the texture read path, and the packer's copies level again	基座对齐到上游 6ba3adc：`nvn_mtl.m` 的 ReadTexels 改成走 sparse pool 的页表（直读存储会让宿主 SIGBUS，#471），按上游新结构合并、只保留我们的运行期开关；打包器副本一并对齐（68 改、37 增），支持列表 **94 款**
 The Chinese half of the notes for the five commits a release would list now	这一版要列出的五条提交，其中文说明补进 `.github/release-notes.zh.tsv`（预防发版时冒出「未翻译」）
 Base to 062cd06: the controller's Home and Capture stay ours on iOS	基座对齐到上游 062cd06：手柄的 Home / Capture 键不再被 iOS 当成系统手势（原先 Home 会呼出游戏 overlay、Capture 会截图），`DmGamepad.m` 三行改动干净合并；打包器副本一并对齐（6 改）
+Write an unknown update version as vunknown, not v?: a '?' is illegal in a Windows file name	未知版本的更新不再写成 `v?`：`?` 在 Windows 文件名里非法（`extract/v?`、`extract_v?.log` 直接 OSError 22 崩掉），改成 `vunknown`，排序仍在 v0 之后；并在警告里说明怎么用 `[vN]` 标签让版本被正确识别

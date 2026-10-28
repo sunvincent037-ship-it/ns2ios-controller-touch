@@ -45,6 +45,12 @@ GFX = DM / 'gfx' / 'tools'
 IOS = DM / 'ios'
 TOOLS = DM / 'tools'
 
+# What an update is called when its version cannot be read: its file name has no [v<N>] tag and the package keeps only an
+# encrypted cnmt.nca (no plaintext cnmt.xml to take <Version> from). The string is a path component -- extract/<ver> and
+# extract_<ver>.log -- so it has to be legal on every platform; "v?" was not (Windows rejects '?' in a name with
+# OSError 22), and it still sorts above "v0" because 'u' sorts above any digit, so such an update stays the newest to pack.
+UNKNOWN_VER = 'vunknown'
+
 
 def say(s): print('[%s] %s' % (time.strftime('%H:%M:%S'), s), flush=True)
 def die(s): sys.exit('[x] ' + s)
@@ -463,8 +469,8 @@ def scan_nsps(folder):
             if kind == 'update' and ver in ('', 'v0'):
                 # An update is never version 0. Without a name or CNMT version it would collide with the base's "v0",
                 # the pair would look like one file and the base would be packed as if no update existed -- which is what
-                # happened to Balatro's update NSP. "v?" sorts above v0, so the update is still the newest to pack.
-                ver = 'v?'
+                # happened to Balatro's update NSP. UNKNOWN_VER sorts above v0, so the update is still the newest to pack.
+                ver = UNKNOWN_VER
         else:
             # an XCI, or an NSP without the metadata XML: fall back to the name, then to what an earlier run recorded, and
             # to the title ID's low bits for the kind
@@ -487,7 +493,7 @@ def scan_nsps(folder):
         a = apps.setdefault(key, {'base': None, 'updates': {}, 'dlc': [], 'all': []})
         a['all'].append((kind, ver, p))
         if kind == 'base': a['base'] = p
-        elif kind == 'update': a['updates'][ver or 'v?'] = p
+        elif kind == 'update': a['updates'][ver or UNKNOWN_VER] = p
         else: a['dlc'].append((tid, ver, p))
     return apps
 
@@ -1438,8 +1444,13 @@ def main():
         die('no update for %s in %s (the folder has: %s)'
             % (pkg, folder, ', '.join(upds) if upds else 'only the base game'))
     if pkg not in builds:
+        why = ''
+        if pkg == UNKNOWN_VER:
+            why = ('\n    The update\'s file name has no [v<N>] tag and its package keeps only an encrypted cnmt.nca, so its\n'
+                   '    version cannot be read. Renaming the file with one in the name (say [v65536]) lets it be matched\n'
+                   '    against the profile; the pack goes on either way, with a profile derived from this version\'s files.')
         warn('%s is not a version this profile registers (%s): it was never tested, and fixes made for a tested version '
-             '(60 fps, for instance) do not apply to it' % (pkg, ', '.join(sorted(builds)) or 'none'))
+             '(60 fps, for instance) do not apply to it%s' % (pkg, ', '.join(sorted(builds)) or 'none', why))
     elif pkg not in need:
         warn('%s is registered, but the shader tables were built from %s -- shaders this version adds may be missing'
              % (pkg, ' '.join(need)))
