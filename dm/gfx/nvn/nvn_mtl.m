@@ -5422,7 +5422,9 @@ static id<MTLFunction> learn_fn(NvShader *fs, unsigned mask) {
     LearnFn *c = g_learn_fn[k];
     os_unfair_lock_unlock(&g_learn_lock);
     if (c && c->mask == mask) return c->fn;
-    NSString *path = [NSString stringWithFormat:@"%@/%@.metallib", g_msl_dir, fs->key];
+    // fs->key is a char[24], not an object: "%@" on it hands CFString a bare pointer and the format machinery sends
+    // respondsToSelector to the characters themselves (SIGTRAP in objc_opt_respondsToSelector). "%s" it is.
+    NSString *path = [NSString stringWithFormat:@"%@/%s.metallib", g_msl_dir, fs->key];
     NSString *txt = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
     if (!txt) { MLOG("[RED] shader %s: no source to learn from at %s (a package holding compiled libraries cannot be taught)", fs->key, path.UTF8String); return nil; }
     if (![txt hasPrefix:@"#"]) { MLOG("[RED] shader %s: %s is a compiled library, not source: its output types cannot be rewritten", fs->key, path.lastPathComponent.UTF8String); return nil; }
@@ -5455,7 +5457,7 @@ static id<MTLRenderPipelineState> pso_learn(NvShader *fs, const pso_key *k, MTLR
     d.fragmentFunction = fn;
     id<MTLRenderPipelineState> ps = pso_build_ex(d, e, 1);
     if (!ps) return nil;
-    char slots[32], why[64];
+    char slots[64], why[96];   // eight unsigned and eight signed slots spelled out is 38 characters, not 32
     learn_slots(m, slots, sizeof slots);
     snprintf(why, sizeof why, "colour %s", slots);
     dm_shader_learn_note(fs->key, m, why);
