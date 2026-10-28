@@ -12,5 +12,5 @@ layout cycling in a small portable policy header.
 - [x] Update `DmGamepad.m`: independent player publishing, slot lifecycle, main-queue handlers, always accessible layout switch, release on background.
 - [x] Integrate the portable test into `dm/host/tests/Makefile` and update the shell overlay and its DmGamepad patch.
 - [x] Document the cause and correction in the services reference and Wonder note; refresh the symptom index.
-- [x] Run wiring tests, portable tests, documentation checks and patch application checks. Xcode/device validation remains pending; whole documentation checks have existing fork-snapshot failures.
-- [x] Prepare a cloud build workflow and a local repack command for a newly compiled shell; the existing IPA is intact. Cloud execution needs GitHub account access and user authorization.
+- [x] Run wiring tests, portable tests, documentation checks and patch application checks. Xcode 26.3 builds the shell; native HID tests pass 119 checks. Device validation remains pending; whole documentation checks have existing fork-snapshot failures.
+- [x] Build the shell in the user's authorized GitHub fork and repack the game locally. The new IPA passes all ZIP CRCs and preserves 55,599 game/resource entries. The original IPA is intact.
