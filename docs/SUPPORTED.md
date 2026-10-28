@@ -3,7 +3,7 @@
 Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not edit by hand.  
 本页由 `dm/tools/supported_list.py` 从 `dm/games/*/game.tsv` 生成，请勿手动修改。
 
-**91 款游戏。** 文件名不重要——打包器从包内容识别游戏，在下表里对上 title ID 就够了。
+**94 款游戏。** 文件名不重要——打包器从包内容识别游戏，在下表里对上 title ID 就够了。
 
 - **IPA 体积** ≈ 你的 NSP/XCI 体积 + 约 16 MB（壳本身）。游戏文件在包里是原样存放的，不再压缩。
 - **首次启动**要编译着色器：打包时只把 Switch 的着色器翻译成 Metal 源码，编译在手机上做（之后有缓存）。几秒到大作几分钟，启动时有进度页。
@@ -46,6 +46,7 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 | DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition | `01006C300E9F0000` | 1.0.4 | 60 fps · 暂不支持 |
 | FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition | `0100CE4010AAC000` | 1.0.3 |  |
 | FINAL FANTASY RESONANCE | `0100606026F12000` | 1.0.1 | 60 fps · 暂不支持 |
+| FINAL FANTASY RESONANCE (Asian release) | `0100B8A026F14000` | 1.0.1 | 60 fps |
 | FINAL FANTASY TACTICS - The Ivalice Chronicles | `010038B015560000` | 1.4.0 |  |
 | FINAL FANTASY X/X-2 HD Remaster | `0100BC300CB48000` | 1.0.0 |  |
 | Fire Emblem Engage | `0100A6301214E000` | 2.0.0 |  |
@@ -71,6 +72,7 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 | OCTOPATH TRAVELER II | `0100A3501946E000` | 1.1.1 | 60 fps |
 | Paper Mario: The Thousand-Year Door | `0100ECD018EBE000` | 1.0.1 | 60 fps |
 | Patrick's Parabox | `0100E44016C22000` | 1.0.1 |  |
+| Persona 4 Golden | `010062B01525C000` | 1.0.2 |  |
 | Persona 5 Royal | `01005CA01580E000` | 1.0.2 |  |
 | Pikmin 4 | `0100B7C00933A000` | 1.1.1 |  |
 | Pokémon Brilliant Diamond | `0100000011D90000` | 1.3.0 | 60 fps |
@@ -104,4 +106,5 @@ Generated from `dm/games/*/game.tsv` by `dm/tools/supported_list.py` — do not 
 | Unicorn Overlord (Asia) | `010054B01AD92000` | 1.05 |  |
 | Xenoblade Chronicles 2 | `0100E95004038000` | 2.1.0 |  |
 | Xenoblade Chronicles 3 | `010074F013262000` | 2.2.1 |  |
+| Xenoblade Chronicles: Definitive Edition | `0100FF500E34A000` | 1.1.2 |  |
 | Yoshi's Crafted World | `01006000040C2000` | 1.0.1 |  |
