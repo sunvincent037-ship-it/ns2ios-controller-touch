@@ -26,7 +26,6 @@
 + dm/ios/tools/make_shell_patch.py        # regenerates .shell-patches/*.patch after editing a "~" file
 + dm/games/0000000000000000/game.tsv      # neutral placeholder profile the shell is compiled against
 + dm/games/0000000000000000/dmsh_chain.h
-+ dm/games/01004D300C5AE000/shader_facts_manual.tsv   # Kirby: 137 pixel shaders write colour 5 into an R8Uint target; listed here so packer_sync keeps it
 + scripts/nxn_pack.py                     # packs the shell and the user's game files into an IPA, on any OS
 + README.md                                # this fork's route; upstream's own README is linked, not copied
 + README.zh-CN.md

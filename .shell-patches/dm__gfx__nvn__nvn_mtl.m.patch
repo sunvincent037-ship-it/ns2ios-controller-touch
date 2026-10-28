@@ -120,7 +120,7 @@ diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
          // (rf.c1 is freed by dealloc when o goes: freeing it here too was a double free, which aborted FINAL FANTASY RESONANCE at its first such shader)
          MLOG("[RED] shader %s reflection conversion failed: a texture handle the translator could not trace to one slot (profile key tex_dyn_slots off)", pc.UTF8String); return nil; }
      if (rt_range_on()) o->range_ro=rt_range_bindings_ro(j);
-@@ -5341,6 +5376,155 @@
+@@ -5341,6 +5376,93 @@
      g_pt_spec_ns += bp_now() - ts;
      return ps;
  }
@@ -211,72 +211,10 @@ diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
 +    return ps;
 +}
 +#endif
-+// ---- A pipeline the MTLDevice refuses: built again through a Metal 4 base ----
-+// On the Mac every render pipeline is a Metal 4 base whose colour attachments (format, blending, factors, operations, write mask) are unspecialized, specialized with the pass's
-+// own formats. On iOS the default is the MTLDevice path (pso4_on: the archive's footprint), and there Metal compares each fragment output's type with the format of the attachment
-+// it writes. A game whose shader declares a float output for an integer attachment is refused for that alone and its draw disappears: Kirby and the Forgotten Land writes colour 5
-+// (R8Uint) from float4 outputs, a value conversion NVN makes as it writes and Metal will not.
-+// A pipeline the MTLDevice refuses is therefore built once more through a base of our own, as the Mac builds every pipeline: the base has no attachment format for Metal to
-+// compare the shader's output types against, and specializing it with the pass's formats leaves the value conversion to the driver. The shader is not touched, no game is named
-+// and no facts table is needed: any pipeline the MTLDevice refuses comes here (DM_PSO_BASE_RETRY=0 turns it off).
-+// The bases are kept in g_pbase_fb, one per pbase_key, with no archive and no capture: only refused pipelines come here, a few hundred at most. The log names the first few and
-+// then every 50th, so a device log shows whether this ran and whether it worked.
-+static id<MTL4Compiler> g_comp4_fb;
-+static nvn_hmap g_pbase_fb = {.klen = sizeof(pbase_key)};
-+static _Atomic int g_fb_ok, g_fb_no;   // built through a base here / not (a base or its specialization was refused)
-+static int fb_off(void) {
-+    static int v = -1;
-+    if (v < 0) { const char *e = getenv("DM_PSO_BASE_RETRY"); v = e && !strcmp(e, "0");
-+        if (v) MLOG("DM_PSO_BASE_RETRY=0: a pipeline the MTLDevice refuses is not built again through a Metal 4 base"); }
-+    return v;
-+}
-+static id<MTLRenderPipelineState> pso_build_base(MTLRenderPipelineDescriptor *d, NSError **e) {
-+    (void)e;   // *e keeps the MTLDevice's message: it names what the pipeline was refused for
-+    if (fb_off() || pso4_on()) return nil;   // with the MTL4 path on, the base itself was refused, and a second one would be refused the same way
-+    static dispatch_once_t once;
-+    dispatch_once(&once, ^{
-+        if (![(id)g_dev respondsToSelector:@selector(newCompilerWithDescriptor:error:)]) return;
-+        NSError *ce = nil; g_comp4_fb = [g_dev newCompilerWithDescriptor:[MTL4CompilerDescriptor new] error:&ce];
-+        if (g_comp4_fb) MLOG("a pipeline the MTLDevice refuses is built again through a Metal 4 base (unspecialized colour attachments, then specialized)");
-+        else MLOG("[RED] no Metal 4 compiler for the base a refused pipeline is built again through (%s): those draws keep disappearing", ce.localizedDescription.UTF8String);
-+    });
-+    if (!g_comp4_fb) return nil;
-+    MTL4RenderPipelineDescriptor *b = pso_desc4(d, d.rasterizationEnabled);
-+    if (!b) return nil;   // a function with no Metal 4 descriptor (fn4_of): the MTLDevice path is all there is
-+    pbase_key bk; pbase_key_of(d, &bk);
-+    os_unfair_lock_lock(&g_pbase_lock);
-+    id<MTLRenderPipelineState> base = hm_get_id(&g_pbase_fb, &bk);
-+    os_unfair_lock_unlock(&g_pbase_lock);
-+    if (!base) {
-+        NSError *be = nil;
-+        base = [g_comp4_fb newRenderPipelineStateWithDescriptor:b compilerTaskOptions:nil error:&be];
-+        if (!base) {
-+            int n = atomic_fetch_add(&g_fb_no, 1) + 1;
-+            if (n <= 8 || !(n % 50)) MLOG("[RED] a refused pipeline's base was refused as well (%d): %s", n, be.localizedDescription.UTF8String);
-+            return nil;
-+        }
-+        os_unfair_lock_lock(&g_pbase_lock); hm_put_id(&g_pbase_fb, &bk, base); os_unfair_lock_unlock(&g_pbase_lock);
-+    }
-+    id<MTLRenderPipelineState> ps = base;   // without rasterization there is no colour state to specialize: the base is the pipeline
-+    if (d.rasterizationEnabled) {
-+        MTL4RenderPipelineDescriptor *s = (MTL4RenderPipelineDescriptor *)[base newRenderPipelineDescriptorForSpecialization];
-+        for (int i = 0; i < 8; i++) pso_col4(s.colorAttachments[i], d.colorAttachments[i]);
-+        NSError *se = nil; ps = [g_comp4_fb newRenderPipelineStateBySpecializationWithDescriptor:s pipeline:base error:&se];
-+        if (!ps) {
-+            int n = atomic_fetch_add(&g_fb_no, 1) + 1;
-+            if (n <= 8 || !(n % 50)) MLOG("[RED] a refused pipeline's base was made but its specialization was refused (%d): %s", n, se.localizedDescription.UTF8String);
-+            return nil;
-+        }
-+    }
-+    { int n = atomic_fetch_add(&g_fb_ok, 1) + 1;
-+      if (n <= 8 || !(n % 50)) MLOG("pipeline built through a Metal 4 base after the MTLDevice refused it (%d): fragment %s, %u samples, colour attachment 0 %#x", n,
-+                                     d.fragmentFunction ? d.fragmentFunction.name.UTF8String : "-", (unsigned)d.rasterSampleCount, (unsigned)d.colorAttachments[0].pixelFormat); }
-+    return ps;
-+}
  static id<MTLRenderPipelineState> pso_build(MTLRenderPipelineDescriptor *d, NSError **e) { return pso_build_ex(d, e, 1); }
  // Pipeline key: current state S + pass formats (normal pass; a merged pass additionally carries lmap / specialized function, filled in by pso_get)
  static void pso_key_fill(pso_key *k, NvShader *vs, NvShader *fs, const uint32_t cfmt[8], uint32_t dfmt, uint32_t sfmt, uint32_t samples, int lmap) {
-@@ -5542,7 +5726,7 @@
+@@ -5542,7 +5664,7 @@
  // The base of one pair as the draws make it (pso_desc_pull / pso_desc), or nil when the pair is left to the draws. Call inside an autorelease pool
  static MTL4RenderPipelineDescriptor *pre_desc(NSString *vk, NSString *fk, int zero) {
      NSDictionary *vj = pre_json(vk), *fj = pre_json(fk);
@@ -285,7 +223,7 @@ diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
      NSString *ventry = zero && vj[@"entry_z"] ? vj[@"entry_z"] : vj[@"entry"], *fentry = fj[@"entry"] ?: @"main0";
      int pull = [vj[@"pull"] isKindOfClass:[NSDictionary class]];
      if (!pull && [vj[@"vertex_inputs"] count]) return nil;   // stage inputs and no pulling library: its pipelines need the draw's layout
-@@ -5581,7 +5765,7 @@
+@@ -5581,7 +5703,7 @@
  // the same for the archive it makes offline, from the same files
  static NSString *pre_stamp(NSString *txt, int zero) {
      NSData *d = [txt dataUsingEncoding:NSUTF8StringEncoding]; uint8_t h[CC_SHA256_DIGEST_LENGTH]; CC_SHA256(d.bytes, (CC_LONG)d.length, h);
@@ -294,7 +232,7 @@ diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
              h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]];
  }
  static NSArray<NSArray<NSString *> *> *pre_parse(NSString *txt) {   // (vertex key, pixel key) per line, without empty lines, comments and repeated lines
-@@ -5784,6 +5968,13 @@
+@@ -5784,6 +5906,11 @@
              vs->layer_out = 1; MLOG("vertex shader %s writes the layer: its pipelines get the triangle input primitive class", vs->key);
              e = nil; d = pso_desc(&k, vs, fs, ms_fn ? ms_fn : g_pso_fsfn, g_pso_lmap != NULL); ps = pso_build(d, &e);
          }
@@ -303,12 +241,10 @@ diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
 +        // that declaration fixed, keep the row, and use the pipeline that comes out of it (dm_shader_learn.h)
 +        if (!ps) ps = pso_learn(fs, &k, d, &e);
 +#endif
-+        // Still nothing: a Metal 4 base of our own, whose colour attachments Metal cannot check the output types against
-+        if (!ps) ps = pso_build_base(d, &e);
      }
      if (!took) {   // the draw waited (built here, made from its queued build, or waited for its running build)
          uint64_t w = bp_now() - bt - (g_pt_pred_ns - pred0); g_pw_n[why]++; g_pw_ns[why] += w;
-@@ -9089,7 +9280,7 @@
+@@ -9089,7 +9216,7 @@
      // textures from the CPU, reads them back with ReadTexels on its own thread before any draw uses them, and copies the blocks into its 5120x5120 roughness atlas. Read from the
      // never-uploaded host texture they were zeros, the atlas stayed empty, and the opening cave's stone blocks got roughness 0 and no torch light
      int nvn_ft_written(const tex_t *);
@@ -317,7 +253,7 @@ diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
          uint32_t lw = MAX(t->d.width >> level, 1u), lh = MAX(t->d.height >> level, 1u), lz = is3d ? MAX(t->d.depth >> level, 1u) : 1;
          size_t lp = (size_t)((lw + bw - 1) / bw) * bpb, lr = (lh + bh - 1) / bh;
          uint8_t *lin = malloc(lp * lr * lz);
-@@ -9703,7 +9894,7 @@
+@@ -9703,7 +9830,7 @@
                  PD("Y signal_event cmd=%p dst=%p mode=%u value=%u", p, val, m, v); mtl_sub_event(val, m, v); break; }
              case OP_REPORT_COUNTER: { uint64_t t, ad; memcpy(&t, a, 8); memcpy(&ad, (const uint8_t *)a + 8, 8); g_cnt_report[t & 31]++;
                  PD("Q report type=%llu cmd=%p dst=%#llx", (unsigned long long)t, p, (unsigned long long)ad);

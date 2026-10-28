@@ -5463,68 +5463,6 @@ static id<MTLRenderPipelineState> pso_learn(NvShader *fs, const pso_key *k, MTLR
     return ps;
 }
 #endif
-// ---- A pipeline the MTLDevice refuses: built again through a Metal 4 base ----
-// On the Mac every render pipeline is a Metal 4 base whose colour attachments (format, blending, factors, operations, write mask) are unspecialized, specialized with the pass's
-// own formats. On iOS the default is the MTLDevice path (pso4_on: the archive's footprint), and there Metal compares each fragment output's type with the format of the attachment
-// it writes. A game whose shader declares a float output for an integer attachment is refused for that alone and its draw disappears: Kirby and the Forgotten Land writes colour 5
-// (R8Uint) from float4 outputs, a value conversion NVN makes as it writes and Metal will not.
-// A pipeline the MTLDevice refuses is therefore built once more through a base of our own, as the Mac builds every pipeline: the base has no attachment format for Metal to
-// compare the shader's output types against, and specializing it with the pass's formats leaves the value conversion to the driver. The shader is not touched, no game is named
-// and no facts table is needed: any pipeline the MTLDevice refuses comes here (DM_PSO_BASE_RETRY=0 turns it off).
-// The bases are kept in g_pbase_fb, one per pbase_key, with no archive and no capture: only refused pipelines come here, a few hundred at most. The log names the first few and
-// then every 50th, so a device log shows whether this ran and whether it worked.
-static id<MTL4Compiler> g_comp4_fb;
-static nvn_hmap g_pbase_fb = {.klen = sizeof(pbase_key)};
-static _Atomic int g_fb_ok, g_fb_no;   // built through a base here / not (a base or its specialization was refused)
-static int fb_off(void) {
-    static int v = -1;
-    if (v < 0) { const char *e = getenv("DM_PSO_BASE_RETRY"); v = e && !strcmp(e, "0");
-        if (v) MLOG("DM_PSO_BASE_RETRY=0: a pipeline the MTLDevice refuses is not built again through a Metal 4 base"); }
-    return v;
-}
-static id<MTLRenderPipelineState> pso_build_base(MTLRenderPipelineDescriptor *d, NSError **e) {
-    (void)e;   // *e keeps the MTLDevice's message: it names what the pipeline was refused for
-    if (fb_off() || pso4_on()) return nil;   // with the MTL4 path on, the base itself was refused, and a second one would be refused the same way
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        if (![(id)g_dev respondsToSelector:@selector(newCompilerWithDescriptor:error:)]) return;
-        NSError *ce = nil; g_comp4_fb = [g_dev newCompilerWithDescriptor:[MTL4CompilerDescriptor new] error:&ce];
-        if (g_comp4_fb) MLOG("a pipeline the MTLDevice refuses is built again through a Metal 4 base (unspecialized colour attachments, then specialized)");
-        else MLOG("[RED] no Metal 4 compiler for the base a refused pipeline is built again through (%s): those draws keep disappearing", ce.localizedDescription.UTF8String);
-    });
-    if (!g_comp4_fb) return nil;
-    MTL4RenderPipelineDescriptor *b = pso_desc4(d, d.rasterizationEnabled);
-    if (!b) return nil;   // a function with no Metal 4 descriptor (fn4_of): the MTLDevice path is all there is
-    pbase_key bk; pbase_key_of(d, &bk);
-    os_unfair_lock_lock(&g_pbase_lock);
-    id<MTLRenderPipelineState> base = hm_get_id(&g_pbase_fb, &bk);
-    os_unfair_lock_unlock(&g_pbase_lock);
-    if (!base) {
-        NSError *be = nil;
-        base = [g_comp4_fb newRenderPipelineStateWithDescriptor:b compilerTaskOptions:nil error:&be];
-        if (!base) {
-            int n = atomic_fetch_add(&g_fb_no, 1) + 1;
-            if (n <= 8 || !(n % 50)) MLOG("[RED] a refused pipeline's base was refused as well (%d): %s", n, be.localizedDescription.UTF8String);
-            return nil;
-        }
-        os_unfair_lock_lock(&g_pbase_lock); hm_put_id(&g_pbase_fb, &bk, base); os_unfair_lock_unlock(&g_pbase_lock);
-    }
-    id<MTLRenderPipelineState> ps = base;   // without rasterization there is no colour state to specialize: the base is the pipeline
-    if (d.rasterizationEnabled) {
-        MTL4RenderPipelineDescriptor *s = (MTL4RenderPipelineDescriptor *)[base newRenderPipelineDescriptorForSpecialization];
-        for (int i = 0; i < 8; i++) pso_col4(s.colorAttachments[i], d.colorAttachments[i]);
-        NSError *se = nil; ps = [g_comp4_fb newRenderPipelineStateBySpecializationWithDescriptor:s pipeline:base error:&se];
-        if (!ps) {
-            int n = atomic_fetch_add(&g_fb_no, 1) + 1;
-            if (n <= 8 || !(n % 50)) MLOG("[RED] a refused pipeline's base was made but its specialization was refused (%d): %s", n, se.localizedDescription.UTF8String);
-            return nil;
-        }
-    }
-    { int n = atomic_fetch_add(&g_fb_ok, 1) + 1;
-      if (n <= 8 || !(n % 50)) MLOG("pipeline built through a Metal 4 base after the MTLDevice refused it (%d): fragment %s, %u samples, colour attachment 0 %#x", n,
-                                     d.fragmentFunction ? d.fragmentFunction.name.UTF8String : "-", (unsigned)d.rasterSampleCount, (unsigned)d.colorAttachments[0].pixelFormat); }
-    return ps;
-}
 static id<MTLRenderPipelineState> pso_build(MTLRenderPipelineDescriptor *d, NSError **e) { return pso_build_ex(d, e, 1); }
 // Pipeline key: current state S + pass formats (normal pass; a merged pass additionally carries lmap / specialized function, filled in by pso_get)
 static void pso_key_fill(pso_key *k, NvShader *vs, NvShader *fs, const uint32_t cfmt[8], uint32_t dfmt, uint32_t sfmt, uint32_t samples, int lmap) {
@@ -5973,8 +5911,6 @@ static __unsafe_unretained id<MTLRenderPipelineState> pso_get_(NvProg *pr, MTLRe
         // that declaration fixed, keep the row, and use the pipeline that comes out of it (dm_shader_learn.h)
         if (!ps) ps = pso_learn(fs, &k, d, &e);
 #endif
-        // Still nothing: a Metal 4 base of our own, whose colour attachments Metal cannot check the output types against
-        if (!ps) ps = pso_build_base(d, &e);
     }
     if (!took) {   // the draw waited (built here, made from its queued build, or waited for its running build)
         uint64_t w = bp_now() - bt - (g_pt_pred_ns - pred0); g_pw_n[why]++; g_pw_ns[why] += w;
