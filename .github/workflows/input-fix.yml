@@ -1,0 +1,103 @@
+name: Build controller and touch fix
+
+on:
+  push:
+    branches: [controller-touch-fix]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: fork
+
+      - name: Assemble the pinned source with this fork's patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=$(tr -d '\r\n' < fork/.shell-base.txt)
+          [[ "$BASE" =~ ^[a-f0-9]{40}$ ]]
+          git init up
+          git -C up fetch --depth=1 https://github.com/seedds/nxnative.git "$BASE"
+          git -C up checkout --detach FETCH_HEAD
+          while IFS= read -r line; do
+            p="${line#+}"; p="${p%%#*}"; p="$(echo "$p" | tr -d '[:space:]')"
+            [ -n "$p" ] || continue
+            mkdir -p "up/$(dirname "$p")"
+            cp -a "fork/$p" "up/$p"
+          done < <(grep -E '^\+' fork/.shell-overlay.txt)
+          for patch in "$GITHUB_WORKSPACE"/fork/.shell-patches/*.patch; do
+            git -C up apply --whitespace=nowarn "$patch"
+          done
+          # These tests are local to this fix, outside the release overlay.
+          cp fork/dm/host/tests/t_ios_pad.c up/dm/host/tests/
+          cp fork/dm/tools/tests/test_ios_gamepad.py up/dm/tools/tests/
+
+      - name: Test independent players and touch layouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd up
+          python3 -m unittest dm.tools.tests.test_ios_gamepad -v
+          clang -O1 -Wall -Wextra -Werror dm/host/tests/t_ios_pad.c -o "$RUNNER_TEMP/t_ios_pad"
+          "$RUNNER_TEMP/t_ios_pad"
+          make -C dm/host/tests GAME=010015100B514000 build/t_hid
+          dm/host/tests/build/t_hid
+
+      - name: Install build dependencies
+        run: |
+          brew install xcodegen
+          python3 -m venv "$RUNNER_TEMP/font-venv"
+          "$RUNNER_TEMP/font-venv/bin/python" -m pip install fonttools
+
+      - name: Compile an unsigned game-free iOS shell
+        env:
+          DM_ROOT: ${{ runner.temp }}/controller-touch-build
+          FONT_PY: ${{ runner.temp }}/font-venv/bin/python
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd up
+          SDK=$(xcrun --sdk iphoneos --show-sdk-version)
+          test "${SDK%%.*}" -ge 26
+          bash dm/ios/tools/shell_build.sh
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp "$DM_ROOT/build/shell/nxnative-shell-build-input.zip" "$GITHUB_WORKSPACE/dist/controller-touch-shell.zip"
+
+      - name: Stamp the compiled host for the Windows repacker
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, zipfile
+          root = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          with zipfile.ZipFile(root / 'dist/controller-touch-shell.zip', 'a') as z:
+              prefix = 'Payload/DmIOS.app/'
+              marker = {
+                  'feature': 'ios-independent-controllers-touch-v1',
+                  'host_sha256': hashlib.sha256(z.read(prefix + 'DmIOS')).hexdigest(),
+                  'fork_commit': os.environ['GITHUB_SHA'],
+                  'upstream_commit': (root / 'fork/.shell-base.txt').read_text().strip(),
+              }
+              z.writestr(prefix + 'dm/input_features.json', json.dumps(marker, indent=2))
+          PY
+
+      - name: Upload game-free build
+        uses: actions/upload-artifact@v4
+        with:
+          name: controller-touch-shell
+          path: dist/controller-touch-shell.zip
+          if-no-files-found: error
+
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: controller-touch-build-logs
+          path: ${{ runner.temp }}/controller-touch-build/build/shell/*.log
+          if-no-files-found: ignore

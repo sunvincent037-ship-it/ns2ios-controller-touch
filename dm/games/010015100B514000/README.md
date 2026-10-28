@@ -96,6 +96,8 @@ Game-specific findings; the general host changes they led to are listed under [F
 
 ## Found on this game
 
+- **iOS controller slots and touch overlay (2026-10-28; device validation open):** the iOS frontend previously merged an Xbox pad and a DualSense into player 1. It now uses the host's existing independent-player API, and keeps a Pad switch available to restore virtual player-1 controls while pads are connected. See [iOS controllers share one player and hide touch controls](../../../docs/reference/services.md#ios-controllers-share-one-player-and-hide-touch-controls) for the cause, fix and remaining checks.
+
 General host changes first needed here; each applies to every game:
 
 - **Resolved: Mac launcher metadata matches native defaults**: [A Mac front end's default settings change Metal execution paths](../../../docs/reference/packing.md#a-mac-front-ends-default-settings-change-metal-execution-paths), found by metadata generation and source inspection; no gameplay measurement.

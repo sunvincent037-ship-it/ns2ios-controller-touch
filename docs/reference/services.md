@@ -235,6 +235,14 @@ Most service calls can be found before they crash, before the first boot or the 
 - **Fix:** the flush calls it through the PLT, so an `HLE_FORCE` on that symbol catches it and returns success (`hle_hid.c`).
 - **Found on:** [Metroid Dread](../../dm/games/010093801237C000/README.md).
 
+### iOS controllers share one player and hide touch controls
+
+- **Symptom:** an Xbox pad and a DualSense are both connected, but choosing two players still reports one; the screen's virtual controls disappear after connecting a pad.
+- **Cause:** `DmGamepad.m` stored every physical pad in one player-1 state and never called `dm_pad_players`. It also hid the layout switch inside the same layer as the controls, so the player could not restore them.
+- **Fix:** the iOS frontend uses the shared `pad_slots.h` assignments and `dm_pad_set_player`, reports the occupied mask, routes motion and rumble per player, and releases the removed pad without changing other slots. GameController callbacks use the main queue. The layout switch stays outside the hidden layer: Pad cycles through 2D, 3D, Tap (handheld only), and Pad. Virtual controls still feed player 1; raw game touches retain the handheld-only behavior.
+- **Check:** `t_ios_pad.c` tests Xbox/DualSense slots, reconnect and the visible/hidden layout cycles. `test_ios_gamepad.py` checks iOS wiring. Xcode compilation and an iPhone/iPad check of two-player selection, independent input, disconnect/reconnect, background/resume and simultaneous touch controls remain open on the Windows development host.
+- **Found on:** [Super Mario Bros. Wonder](../../dm/games/010015100B514000/README.md).
+
 ### Vibration handles before a controller is reported
 
 - **Symptom:** `DM_RUMBLE_LOG=1` shows the game's startup handle request answered with none, then every vibration value sent to handle 0 and reaching no output for the whole session, although a controller with haptics (a DualSense on the Mac) is connected. A game that rumbles would stay silent.
