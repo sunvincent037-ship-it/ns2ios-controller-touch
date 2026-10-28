@@ -37,3 +37,5 @@ Move the base to 6ea9b5b: eleven patches, a layout merge, and the packer's copie
 Base to 148cc07: nvn_mtl.m moved once more, for the Mac window's frame latency	基座再对齐到上游 148cc07：`nvn_mtl.m` 当天又被改了一次（Mac 窗口全屏下的帧延迟），重新合并并重生补丁
 Base to 337186c: a test file and a doc, no patched file moved	基座对齐到上游 337186c：只有一个测试文件与一份文档变动，我们修补的文件都没动，补丁不用重生成
 Restore needs_mac_shaders on the five Oodle/LZ5 profiles the sync overwrote	还原 5 个 Oodle/LZ5 profile 上的 `needs_mac_shaders`：打包器副本同步会把它冲掉，支持列表靠这个键标「暂不支持」
+The Chinese half of the notes for the ten commits this release lists	这一版列出的十条提交，其中文说明补进 `.github/release-notes.zh.tsv`
+Translate the notes commit itself, so the next release lists no untranslated row	连这一条提交自己的中文也补上，免得下一版又冒出一行「未翻译」
