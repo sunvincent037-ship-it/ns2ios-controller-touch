@@ -1103,6 +1103,11 @@ def env_for(rows):
     for k, ev in (('fps_target', 'DM_FPS_TARGET'),):
         v = one(rows, k)
         if v: lines.append('%s=%s' % (ev, v.strip()))
+    if 'local_users' in rows:
+        users = one(rows, 'local_users')
+        if users is None or re.fullmatch(r'[1-8]', users.strip()) is None:
+            die('local_users must be an integer from 1 to 8')
+        lines.append('DM_LOCAL_USERS=' + users.strip())
     # op_mode is read as atoi() against DM_GAME_OPMODE, which is int(om == "console"): atoi("handheld") and
     # atoi("console") are both 0, so the profile's word has to become the number the host compares.
     om = one(rows, 'op_mode')
