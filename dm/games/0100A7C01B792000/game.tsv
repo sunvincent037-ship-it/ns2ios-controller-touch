@@ -41,3 +41,7 @@ local_users	2
 mem_used	0xb200000
 game_args	-SwitchVirtualAddressSpaceSize=4064
 tex_dyn_slots	on
+
+# Experimental 60 fps target: exact-build native UE limiters in hle_fpslock.c.
+# This changes neither render scale nor dynamic-resolution policy.
+fps_target	60

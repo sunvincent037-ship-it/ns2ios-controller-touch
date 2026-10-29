@@ -15,6 +15,13 @@ enum { FPS_F32, VSYNCS_I32, MS_F32, FPS_I32 };
 #define MS_MARGIN 0.5f
 static float ms_want(int fps) { return 1000.0f / (float)fps - (fps == 60 ? MS_MARGIN : 0); }
 static const struct { const char *build, *what; uint64_t ptr_off; uint32_t field; uint8_t kind, copies; } k_locks[] = {
+    // Minecraft Dungeons II 1.1.1.0: UE5.6.1 t.MaxFPS is registered at +0x33eaa78,
+    // rhi.SyncInterval at +0x147dc20. Both constructors store AsVariable* at +0x10
+    // of their TAutoConsoleVariable, with consecutive game/render-thread values.
+    // Device logs request interval 2 even when GPU work fits 16.7 ms. Keep both
+    // native limits in agreement; changing display refresh alone leaves the cap.
+    { "9e9d887d59f7f7db176b35e3379258b9", "Unreal t.MaxFPS (Dungeons II)", 0xae22500 + 0x10, 0, FPS_F32, 2 },
+    { "9e9d887d59f7f7db176b35e3379258b9", "Unreal rhi.SyncInterval (Dungeons II)", 0xac91a10 + 0x10, 0, VSYNCS_I32, 2 },
     // Pokemon Brilliant Diamond 1.3.0: Unity's Application.targetFrameRate. Its icall registration (main+0xe34e60) resolves to main+0xdc8e70 -> +0x5fa640,
     // which stores w0 at main+0x4afc868; the getter at +0x5fa630 reads the same int32. The game sets 30 when entering the field; display pacing alone does not remove that cap.
     { "94ceae325c205c4b9d6f7235552f28fd", "Unity targetFrameRate", 0, 0x4afc868, FPS_I32, 1 },

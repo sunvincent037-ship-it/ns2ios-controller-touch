@@ -40,6 +40,7 @@ jobs:
           # Explicit reviewed overrides after the pinned shell overlay.
           for p in dm/host/hle_account.c dm/host/hle_fs.c dm/host/hle_uemalloc.c dm/host/local_users.h \
                    dm/host/tests/t_local_users.c dm/host/tests/t_ios_pad.c \
+                   dm/host/hle_fpslock.c dm/tools/tests/test_dungeons_performance.py \
                    dm/tools/tests/test_local_users.py dm/tools/tests/test_ios_gamepad.py \
                    dm/tools/tests/test_repack_input_fix.py scripts/repack_input_fix.py \
                    dm/gfx/hle_vi.c dm/gfx/vi_frame_history.h \
@@ -59,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           cd up
-          python3 -m unittest dm.tools.tests.test_local_users dm.tools.tests.test_ios_gamepad dm.tools.tests.test_repack_input_fix dm.tools.tests.test_patches dm.tools.tests.test_shader_prep_policy dm.tools.tests.test_vi_frame_history dm.tools.tests.test_msl_source_options -v
+          python3 -m unittest dm.tools.tests.test_local_users dm.tools.tests.test_ios_gamepad dm.tools.tests.test_repack_input_fix dm.tools.tests.test_patches dm.tools.tests.test_shader_prep_policy dm.tools.tests.test_vi_frame_history dm.tools.tests.test_msl_source_options dm.tools.tests.test_dungeons_performance -v
           clang -O1 -Wall -Wextra -Werror dm/host/tests/t_ios_pad.c -o "$RUNNER_TEMP/t_ios_pad"
           "$RUNNER_TEMP/t_ios_pad"
           # Full t_fs links ARM64 host-stack assembly and cannot run on this Intel runner.
@@ -100,10 +101,12 @@ jobs:
               assert build.encode() in host, 'compiled host lacks the measured allocator build'
               assert b'DM_LOCAL_USERS' in host, 'compiled host lacks local-user configuration'
               assert b'relaxed-invariant-v1' in host, 'compiled host lacks source shader compiler contract'
+              assert b'Unreal t.MaxFPS (Dungeons II)' in host, 'compiled host lacks exact-build engine frame limits'
               marker = {
                   'feature': 'ios-independent-controllers-touch-v1',
                   'local_coop_feature': 'ios-local-users-v1',
                   'source_shader_options': 'relaxed-invariant-v1',
+                  'dungeons_performance': 'native-ue-limits-v1',
                   'allocator_builds': [build],
                   'host_sha256': hashlib.sha256(host).hexdigest(),
                   'fork_commit': os.environ['GITHUB_SHA'],
@@ -118,6 +121,7 @@ jobs:
           name: dungeons-ii-shell
           path: dist/dungeons-ii-shell.zip
           if-no-files-found: error
+          retention-days: 1
 
       - name: Upload build diagnostics
         if: failure()
@@ -126,3 +130,4 @@ jobs:
           name: dungeons-ii-build-logs
           path: ${{ runner.temp }}/dungeons-ii-build/build/shell/*.log
           if-no-files-found: ignore
+          retention-days: 1
