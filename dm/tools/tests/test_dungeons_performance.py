@@ -140,6 +140,7 @@ static void test_pause(unsigned milliseconds) { usleep(milliseconds*1000); }
 #endif
 #define LOG(...) do { fprintf(stderr,__VA_ARGS__); fputc('\n',stderr); } while (0)
 #define die(...) do { LOG(__VA_ARGS__); exit(86); } while (0)
+#undef TARGET_OS_IPHONE
 #define TARGET_OS_IPHONE 1
 // Darwin's stdlib already forward-declares malloc_zone_t. Keep the portable
 // stand-in in its own namespace while executing the production allocator code.
