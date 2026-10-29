@@ -141,6 +141,9 @@ static void test_pause(unsigned milliseconds) { usleep(milliseconds*1000); }
 #define LOG(...) do { fprintf(stderr,__VA_ARGS__); fputc('\n',stderr); } while (0)
 #define die(...) do { LOG(__VA_ARGS__); exit(86); } while (0)
 #define TARGET_OS_IPHONE 1
+// Darwin's stdlib already forward-declares malloc_zone_t. Keep the portable
+// stand-in in its own namespace while executing the production allocator code.
+#define malloc_zone_t test_malloc_zone_t
 typedef struct malloc_zone_s { unsigned version; const char *zone_name; void *(*malloc)(void *,size_t); } malloc_zone_t;
 static malloc_zone_t custom_zone={16,"guest Unreal heap",NULL}, default_zone={16,"default",NULL};
 static unsigned char old_block[128], probe_block[65536];
