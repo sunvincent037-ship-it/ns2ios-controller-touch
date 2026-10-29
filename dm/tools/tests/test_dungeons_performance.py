@@ -84,13 +84,14 @@ int main(int argc, char **argv) {
 '''
 
 class DungeonsFrameLimits(unittest.TestCase):
+    MAIN_SOURCE = MAIN
     @classmethod
     def setUpClass(cls):
         cls.tmp=tempfile.TemporaryDirectory(prefix='dm-dungeons-fps-')
         folder=Path(cls.tmp.name)
         source=(ROOT/'dm/host/hle_fpslock.c').read_text(encoding='utf8')
         source=source.replace('#include "hle.h"',PRELUDE,1).replace('#include <mach/mach.h>','',1)
-        cfile=folder/'fps.c'; cfile.write_text(source+'\n'+MAIN,encoding='utf8')
+        cfile=folder/'fps.c'; cfile.write_text(source+'\n'+cls.MAIN_SOURCE,encoding='utf8')
         cls.exe=folder/('fps.exe' if os.name=='nt' else 'fps')
         cc=[p.strip('"') for p in shlex.split(os.environ.get('CC','cc'),posix=os.name!='nt')]
         built=subprocess.run(cc+['-std=c11','-O1','-Wall','-Wextra','-Werror','-Wno-unused-function',str(cfile),'-o',str(cls.exe)],capture_output=True,text=True)
@@ -109,5 +110,12 @@ class DungeonsFrameLimits(unittest.TestCase):
     def test_invalid_target_is_untouched(self): self.case('invalid','120')
     def test_unlimited_float_value_is_preserved(self): self.case('zero')
     def test_uninitialized_nan_is_not_written(self): self.case('nan')
+
+class ItTakesTwoFrameLimits(DungeonsFrameLimits):
+    MAIN_SOURCE = (MAIN
+        .replace('9e9d887d59f7f7db176b35e3379258b9', 'c4067e8cb3258656d8e9b448ee31aa38')
+        .replace('0xae22510', '0xacf9130')
+        .replace('0xac91a20', '0xab9ece8'))
+
 
 if __name__=='__main__': unittest.main()

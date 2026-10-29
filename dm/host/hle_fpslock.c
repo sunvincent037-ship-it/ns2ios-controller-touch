@@ -15,6 +15,12 @@ enum { FPS_F32, VSYNCS_I32, MS_F32, FPS_I32 };
 #define MS_MARGIN 0.5f
 static float ms_want(int fps) { return 1000.0f / (float)fps - (fps == 60 ? MS_MARGIN : 0); }
 static const struct { const char *build, *what; uint64_t ptr_off; uint32_t field; uint8_t kind, copies; } k_locks[] = {
+    // It Takes Two 1.0.2: t.MaxFPS is registered at main+0x547f704,
+    // rhi.SyncInterval at +0x3bbf078. Each TAutoConsoleVariable stores its
+    // AsVariable value pointer at +0x10, followed by game/render-thread copies.
+    // Both Switch device profiles request synchronization interval 2.
+    { "c4067e8cb3258656d8e9b448ee31aa38", "Unreal t.MaxFPS (It Takes Two)", 0xacf9120 + 0x10, 0, FPS_F32, 2 },
+    { "c4067e8cb3258656d8e9b448ee31aa38", "Unreal rhi.SyncInterval (It Takes Two)", 0xab9ecd8 + 0x10, 0, VSYNCS_I32, 2 },
     // Minecraft Dungeons II 1.1.1.0: UE5.6.1 t.MaxFPS is registered at +0x33eaa78,
     // rhi.SyncInterval at +0x147dc20. Both constructors store AsVariable* at +0x10
     // of their TAutoConsoleVariable, with consecutive game/render-thread values.

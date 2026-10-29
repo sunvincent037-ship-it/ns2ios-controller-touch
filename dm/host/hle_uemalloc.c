@@ -30,6 +30,11 @@ static const struct { int nslot, malloc_, try_malloc, realloc_, try_realloc, fre
     [UE5_6] = { 32, 6, 7, 8, 9, 10, 13, 14, { 15, 16, 17, 18, 19, 23 } },   // Trim, the four TLS cache calls, DumpAllocatorStats
 };
 static const struct { const char *build, *what; int layout; uint64_t obj, vtable, cut; } k_ue[] = {
+    // It Takes Two 1.0.2: GCreateMalloc allocates 0x1c38 bytes and constructs the
+    // UE4 allocator at +0x34fddd8. Its 21-slot vtable has TryMalloc/TryRealloc
+    // delegating through +0x18/+0x28 and GetDescriptiveName at slot 19.
+    // The local rewriter cuts the call and gates the following mov x0,x19.
+    { "c4067e8cb3258656d8e9b448ee31aa38", "It Takes Two 1.0.2", UE4_27, 0, 0x97d6f70, 0x349f560 },
     // Octopath Traveler 0 1.0.5: the FMallocBinned3 object (main+0x68022c8, bss), its vtable (main+0x5b06f38, 26 slots), the cut constructor call (main+0x12e40, a nop after the rewrite)
     { "9fe60a212cff9b9a3656ab63d4f882e5", "Octopath Traveler 0 1.0.5", UE5, 0x68022c8, 0x5b06f38, 0x12e40 },
     // DRAGON QUEST VII Reimagined 1.2.0: no fixed object (0: made by GCreateMalloc, given at the gate), its vtable (main+0x5e4c0e8, 21 slots), the cut constructor call (main+0x32758dc)

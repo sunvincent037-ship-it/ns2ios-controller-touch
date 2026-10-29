@@ -1,0 +1,134 @@
+name: Build It Takes Two experimental iOS shell
+
+on:
+  push:
+    branches: [it-takes-two-ios]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: fork
+
+      - name: Assemble pinned source and reviewed host changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=$(tr -d '\r\n' < fork/.shell-base.txt)
+          [[ "$BASE" =~ ^[a-f0-9]{40}$ ]]
+          git init up
+          git -C up fetch --depth=1 https://github.com/seedds/nxnative.git "$BASE"
+          git -C up checkout --detach FETCH_HEAD
+          while IFS= read -r line; do
+            p="${line#+}"; p="${p%%#*}"; p="$(echo "$p" | tr -d '[:space:]')"
+            [ -n "$p" ] || continue
+            mkdir -p "up/$(dirname "$p")"
+            cp -a "fork/$p" "up/$p"
+          done < <(grep -E '^\+' fork/.shell-overlay.txt)
+          for patch in "$GITHUB_WORKSPACE"/fork/.shell-patches/*.patch; do
+            git -C up apply --whitespace=nowarn "$patch"
+          done
+          # Explicit reviewed overrides after the pinned shell overlay.
+          for p in dm/host/hle_account.c dm/host/hle_fs.c dm/host/hle_uemalloc.c dm/host/local_users.h \
+                   dm/host/tests/t_local_users.c dm/host/tests/t_ios_pad.c \
+                   dm/host/hle_fpslock.c dm/tools/tests/test_dungeons_performance.py \
+                   dm/tools/tests/test_local_users.py dm/tools/tests/test_ios_gamepad.py \
+                   dm/tools/tests/test_repack_input_fix.py scripts/repack_input_fix.py \
+                   dm/gfx/hle_vi.c dm/gfx/vi_frame_history.h \
+                   dm/gfx/nvn/hle_nvn.c dm/gfx/nvn/nvn_mtl.m \
+                   dm/gfx/gl/hle_gl.m dm/gfx/vk/hle_vk.m dm/gfx/tests/Makefile \
+                   dm/tools/tests/test_vi_frame_history.py; do
+            mkdir -p "up/$(dirname "$p")"
+            cp "fork/$p" "up/$p"
+          done
+          mkdir -p up/dm/games/0100A7C01B792000
+          for p in game.tsv patches.py README.md; do
+            cp "fork/dm/games/0100A7C01B792000/$p" "up/dm/games/0100A7C01B792000/$p"
+          done
+
+      - name: Test local users, save isolation and independent controllers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd up
+          python3 -m unittest dm.tools.tests.test_local_users dm.tools.tests.test_ios_gamepad dm.tools.tests.test_repack_input_fix dm.tools.tests.test_patches dm.tools.tests.test_shader_prep_policy dm.tools.tests.test_vi_frame_history dm.tools.tests.test_msl_source_options dm.tools.tests.test_dungeons_performance -v
+          clang -O1 -Wall -Wextra -Werror dm/host/tests/t_ios_pad.c -o "$RUNNER_TEMP/t_ios_pad"
+          "$RUNNER_TEMP/t_ios_pad"
+          # Full t_fs links ARM64 host-stack assembly and cannot run on this Intel runner.
+          # test_local_users above compiles the actual save-mount wrapper with a portable transaction boundary.
+          make -C dm/host/tests GAME=010015100B514000 build/t_hid
+          dm/host/tests/build/t_hid
+
+      - name: Install build dependencies
+        run: |
+          brew install xcodegen
+          python3 -m venv "$RUNNER_TEMP/font-venv"
+          "$RUNNER_TEMP/font-venv/bin/python" -m pip install fonttools
+
+      - name: Compile unsigned game-free iOS shell
+        env:
+          DM_ROOT: ${{ runner.temp }}/it-takes-two-build
+          FONT_PY: ${{ runner.temp }}/font-venv/bin/python
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd up
+          SDK=$(xcrun --sdk iphoneos --show-sdk-version)
+          test "${SDK%%.*}" -ge 26
+          bash dm/ios/tools/shell_build.sh
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp "$DM_ROOT/build/shell/nxnative-shell-build-input.zip" "$GITHUB_WORKSPACE/dist/it-takes-two-shell.zip"
+
+      - name: Verify and stamp compiled host features
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, zipfile
+          root = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          with zipfile.ZipFile(root / 'dist/it-takes-two-shell.zip', 'a') as z:
+              prefix = 'Payload/DmIOS.app/'
+              host = z.read(prefix + 'DmIOS')
+              build = 'c4067e8cb3258656d8e9b448ee31aa38'
+              assert build.encode() in host, 'compiled host lacks the measured allocator build'
+              assert b'DM_LOCAL_USERS' in host, 'compiled host lacks local-user configuration'
+              assert b'relaxed-invariant-v1' in host, 'compiled host lacks source shader compiler contract'
+              assert b'Unreal t.MaxFPS (It Takes Two)' in host, 'compiled host lacks exact-build engine frame limits'
+              marker = {
+                  'feature': 'ios-independent-controllers-touch-v1',
+                  'local_coop_feature': 'ios-local-users-v1',
+                  'source_shader_options': 'relaxed-invariant-v1',
+                  'it_takes_two_performance': 'native-ue-limits-v1',
+                  'device_acceptance': 'pending',
+                  'allocator_builds': [build],
+                  'host_sha256': hashlib.sha256(host).hexdigest(),
+                  'fork_commit': os.environ['GITHUB_SHA'],
+                  'upstream_commit': (root / 'fork/.shell-base.txt').read_text().strip(),
+              }
+              z.writestr(prefix + 'dm/input_features.json', json.dumps(marker, indent=2))
+          PY
+
+      - name: Upload game-free build
+        uses: actions/upload-artifact@v4
+        with:
+          name: it-takes-two-shell
+          path: dist/it-takes-two-shell.zip
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: it-takes-two-build-logs
+          path: ${{ runner.temp }}/it-takes-two-build/build/shell/*.log
+          if-no-files-found: ignore
+          retention-days: 1
