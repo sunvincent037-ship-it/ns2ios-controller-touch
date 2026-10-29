@@ -102,11 +102,14 @@ jobs:
               assert b'DM_LOCAL_USERS' in host, 'compiled host lacks local-user configuration'
               assert b'relaxed-invariant-v1' in host, 'compiled host lacks source shader compiler contract'
               assert b'Unreal t.MaxFPS (It Takes Two)' in host, 'compiled host lacks exact-build engine frame limits'
+              assert b'UE malloc failure' in host, 'compiled host lacks allocator failure evidence'
+              assert b'DM_UE_ALLOCATOR' in host, 'compiled host lacks controlled zone selection'
               marker = {
                   'feature': 'ios-independent-controllers-touch-v1',
                   'local_coop_feature': 'ios-local-users-v1',
                   'source_shader_options': 'relaxed-invariant-v1',
                   'it_takes_two_performance': 'native-ue-limits-v1',
+                  'it_takes_two_allocator': 'zone-comparison-diagnostics-v1',
                   'device_acceptance': 'pending',
                   'allocator_builds': [build],
                   'host_sha256': hashlib.sha256(host).hexdigest(),

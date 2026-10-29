@@ -118,4 +118,165 @@ class ItTakesTwoFrameLimits(DungeonsFrameLimits):
         .replace('0xac91a20', '0xab9ece8'))
 
 
+UE_PRELUDE = r'''
+#undef NDEBUG
+#include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+#include <errno.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#ifdef _WIN32
+#include <windows.h>
+static void test_pause(unsigned milliseconds) { Sleep(milliseconds); }
+static void usleep(unsigned microseconds) { Sleep((microseconds+999)/1000); }
+#else
+#include <pthread.h>
+#include <unistd.h>
+static void test_pause(unsigned milliseconds) { usleep(milliseconds*1000); }
+#endif
+#define LOG(...) do { fprintf(stderr,__VA_ARGS__); fputc('\n',stderr); } while (0)
+#define die(...) do { LOG(__VA_ARGS__); exit(86); } while (0)
+#define TARGET_OS_IPHONE 1
+typedef struct malloc_zone_s { unsigned version; const char *zone_name; void *(*malloc)(void *,size_t); } malloc_zone_t;
+static malloc_zone_t custom_zone={16,"guest Unreal heap",NULL}, default_zone={16,"default",NULL};
+static unsigned char old_block[128], probe_block[65536];
+static int probe_frees, map_calls, unmaps, zone_renames;
+static _Atomic int task_info_entered;
+static int concurrent_case;
+static malloc_zone_t *malloc_default_zone(void) { return &default_zone; }
+static malloc_zone_t *malloc_create_zone(size_t n,unsigned flags) { (void)n;(void)flags;return &custom_zone; }
+static const char *malloc_get_zone_name(malloc_zone_t *z) { return z->zone_name; }
+static void malloc_set_zone_name(malloc_zone_t *z,const char *name) { assert(z!=&default_zone);z->zone_name=name;zone_renames++; }
+static malloc_zone_t *malloc_zone_from_ptr(const void *p) { return p==old_block?&custom_zone:&default_zone; }
+static size_t malloc_size(const void *p) { return p==old_block?sizeof old_block:4096; }
+static size_t malloc_good_size(size_t n) { return (n+15)&~(size_t)15; }
+static void *malloc_zone_malloc(malloc_zone_t *z,size_t n) {
+    assert(n<=sizeof probe_block);
+    if (z==&custom_zone) { errno=ENOMEM;return NULL; }
+    return probe_block;
+}
+static void *malloc_zone_memalign(malloc_zone_t *z,size_t a,size_t n) { (void)a;return malloc_zone_malloc(z,n); }
+static void *malloc_zone_realloc(malloc_zone_t *z,void *p,size_t n) { assert(z==&custom_zone&&p==old_block);(void)n;errno=ENOMEM;return NULL; }
+static void malloc_zone_free(malloc_zone_t *z,void *p) { assert(z==&default_zone&&p==probe_block);probe_frees++; }
+typedef uintptr_t vm_address_t;
+typedef size_t vm_size_t;
+typedef int kern_return_t, mach_msg_type_number_t;
+typedef void *task_info_t;
+typedef struct { uint64_t phys_footprint,limit_bytes_remaining; } task_vm_info_data_t;
+#define TASK_VM_INFO_COUNT 2
+#define TASK_VM_INFO 1
+#define KERN_SUCCESS 0
+#define VM_FLAGS_ANYWHERE 1
+#define VM_MAKE_TAG(t) ((t)<<24)
+#define VM_MEMORY_MALLOC_SMALL 2
+#define MEMORY_OBJECT_NULL 0
+#define FALSE 0
+#define VM_PROT_READ 1
+#define VM_PROT_WRITE 2
+#define VM_INHERIT_DEFAULT 0
+static int mach_task_self(void) { return 1; }
+static int task_info(int t,int flavor,task_info_t p,mach_msg_type_number_t *n) {
+    if (concurrent_case) { atomic_store(&task_info_entered,1);test_pause(80); }
+    (void)t;(void)flavor;(void)n;task_vm_info_data_t *v=p;v->phys_footprint=1660ull<<20;v->limit_bytes_remaining=3400ull<<20;return 0;
+}
+static size_t os_proc_available_memory(void) { return (size_t)3400<<20; }
+static kern_return_t vm_map(int task,vm_address_t *a,vm_size_t size,vm_address_t mask,int flags,int obj,size_t off,int copy,int prot,int maxprot,int inherit) {
+    (void)task;(void)obj;(void)off;(void)copy;(void)prot;(void)maxprot;(void)inherit;
+    assert(size==(4u<<20)&&mask==size-1);map_calls++;
+    if (flags&VM_MAKE_TAG(VM_MEMORY_MALLOC_SMALL)) return 3;
+    *a=0x80000000u;return 0;
+}
+static kern_return_t vm_deallocate(int task,vm_address_t a,vm_size_t size) { (void)task;assert(a==0x80000000u&&size==(4u<<20));unmaps++;return 0; }
+typedef struct { const char *dli_sname; } Dl_info;
+static int dladdr(void *p,Dl_info *d) { (void)p;d->dli_sname="test_zone_malloc";return 1; }
+'''
+
+UE_MAIN = r'''
+#ifdef _WIN32
+static DWORD WINAPI failing_thread(void *p) { (void)p;m_Malloc(NULL,4096,0);return 0; }
+#else
+static void *failing_thread(void *p) { (void)p;m_Malloc(NULL,4096,0);return NULL; }
+#endif
+int main(int argc,char **argv) {
+    assert(argc==2);g_zone=&custom_zone;memset(old_block,0x5a,sizeof old_block);
+    if (!strncmp(argv[1],"zone-",5)) {
+        g_zone=ue_zone_create();
+        if (!strcmp(argv[1],"zone-default")) assert(g_zone==&default_zone&&zone_renames==0);
+        else assert(g_zone==&custom_zone&&zone_renames==1);
+        return 0;
+    }
+    if (!strcmp(argv[1],"fatal")) { m_Malloc(NULL,4096,0);return 1; }
+    if (!strcmp(argv[1],"concurrent")) {
+        concurrent_case=1;
+#ifdef _WIN32
+        HANDLE first=CreateThread(NULL,0,failing_thread,NULL,0,NULL);assert(first);
+#else
+        pthread_t first;assert(!pthread_create(&first,NULL,failing_thread,NULL));
+#endif
+        while (!atomic_load(&task_info_entered)) test_pause(1);
+        m_Malloc(NULL,4096,0);return 1;
+    }
+    if (!strcmp(argv[1],"realloc")) {
+        assert(m_TryRealloc(NULL,old_block,4096,0)==NULL);
+        assert(old_block[0]==0x5a&&old_block[127]==0x5a);
+    } else {
+        assert(m_TryMalloc(NULL,4096,0)==NULL);
+        assert(m_TryMalloc(NULL,4096,0)==NULL);
+    }
+    assert(errno==ENOMEM);
+    assert(probe_frees==1&&map_calls==2&&unmaps==1);
+    return 0;
+}
+'''
+
+
+class UnrealAllocatorFailureDiagnostics(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp=tempfile.TemporaryDirectory(prefix='dm-ue-allocator-')
+        whole=(ROOT/'dm/host/hle_uemalloc.c').read_text(encoding='utf-8')
+        source=whole[whole.index('static malloc_zone_t *g_zone;'):whole.index('static void *g_vt[NSLOT];')]
+        if 'static malloc_zone_t *ue_zone_create(' not in source:
+            # Execute the existing production initialization before that operation
+            # is factored into a helper, so the selector regression fails at run time.
+            start=whole.index('g_zone = malloc_create_zone(')
+            legacy=whole[start:whole.index('g_what = k_ue[k].what;',start)]
+            source+='\nstatic malloc_zone_t *ue_zone_create(void) { '+legacy+' return g_zone; }\n'
+        folder=Path(cls.tmp.name);cfile=folder/'allocator.c';cls.exe=folder/('allocator.exe' if os.name=='nt' else 'allocator')
+        cfile.write_text(UE_PRELUDE+'\n'+source+'\n'+UE_MAIN,encoding='utf-8')
+        cc=[p.strip('"') for p in shlex.split(os.environ.get('CC','cc'),posix=os.name!='nt')]
+        built=subprocess.run(cc+['-std=c11','-O1','-Wall','-Wextra','-Werror','-Wno-unused-function','-Wno-unused-variable',str(cfile),'-o',str(cls.exe)],capture_output=True,text=True)
+        if built.returncode:raise AssertionError(built.stdout+built.stderr)
+    @classmethod
+    def tearDownClass(cls):cls.tmp.cleanup()
+    def test_failed_try_malloc_reports_once_and_releases_native_probes(self):
+        result=subprocess.run([str(self.exe),'malloc'],capture_output=True,text=True)
+        self.assertIn('UE malloc failure',result.stderr)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stderr.count('UE malloc failure'),1)
+    def test_failed_realloc_preserves_pointer_contents_and_original_errno(self):
+        result=subprocess.run([str(self.exe),'realloc'],capture_output=True,text=True)
+        self.assertIn('UE malloc failure',result.stderr)
+        self.assertIn('owner=',result.stderr)
+        self.assertEqual(result.returncode,0,result.stderr)
+    def test_fatal_allocation_still_terminates_after_diagnostics(self):
+        result=subprocess.run([str(self.exe),'fatal'],capture_output=True,text=True)
+        self.assertIn('UE malloc failure',result.stderr)
+        self.assertEqual(result.returncode,86,result.stderr)
+    def test_explicit_default_zone_does_not_rename_the_process_default(self):
+        result=subprocess.run([str(self.exe),'zone-default'],env=dict(os.environ,DM_UE_ALLOCATOR='default'),capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+    def test_custom_zone_remains_the_baseline(self):
+        result=subprocess.run([str(self.exe),'zone-custom'],env=dict(os.environ,DM_UE_ALLOCATOR='custom'),capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+    def test_concurrent_fatal_waits_for_the_first_probe_report(self):
+        result=subprocess.run([str(self.exe),'concurrent'],capture_output=True,text=True,timeout=5)
+        self.assertIn('UE allocation probes',result.stderr)
+        self.assertEqual(result.returncode,86,result.stderr)
+
+
 if __name__=='__main__': unittest.main()

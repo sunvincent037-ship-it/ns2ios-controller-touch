@@ -20,7 +20,15 @@
 #include "hle.h"
 #include <malloc/malloc.h>
 #include <mach/mach.h>
+#include <mach/vm_statistics.h>
 #include <stdatomic.h>
+#include <errno.h>
+#include <dlfcn.h>
+#include <TargetConditionals.h>
+#include <unistd.h>
+#if TARGET_OS_IPHONE
+#include <os/proc.h>
+#endif
 
 // Slot layouts: which slots the host fills and which do nothing (up to 6; 0 ends the list); the others keep the guest's own functions
 enum { UE5, UE4_27, UE5_6 };
@@ -57,6 +65,71 @@ enum { NSLOT = 32 };
 
 static malloc_zone_t *g_zone;
 static _Atomic int64_t g_used, g_peak;   // bytes in use (usable sizes) and their high-water mark, for the [mem] line (one per 256 MB of new peak)
+// A controlled allocator comparison, selected before any guest allocations.
+// Keep the existing private zone unless the diagnostic package explicitly asks
+// for the process default. Never rename or destroy the shared default zone.
+static malloc_zone_t *ue_zone_create(void) {
+    const char *e = getenv("DM_UE_ALLOCATOR");
+    if (e && !strcmp(e, "default")) return malloc_default_zone();
+    malloc_zone_t *z = malloc_create_zone(0, 0);
+    if (z) malloc_set_zone_name(z, "guest Unreal heap");
+    return z;
+}
+
+// Failure-only evidence. A subzone allocation failure is not proof of either
+// resident-memory pressure or exhaustion of the entire virtual address space.
+// Probe once, free every successful probe, and preserve the caller's original
+// failure/errno: none of these probes is a fallback for a guest allocation.
+static void alloc_failure(const char *op, void *p, size_t n, uint32_t a, int error) {
+    static _Atomic int state;   // 0 not started, 1 collecting, 2 complete
+    static _Thread_local int reporting;
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&state, &expected, 1)) {
+        // Another failing thread must not abort before the first report is
+        // flushed. Bound the diagnostic wait; never deadlock on recursion.
+        if (!reporting) for (int ms = 0; ms < 1000 && atomic_load(&state) == 1; ms++) usleep(1000);
+        errno = error; return;
+    }
+    reporting = 1;
+    malloc_zone_t *owner = p ? malloc_zone_from_ptr(p) : NULL;
+    Dl_info symbol = {0};
+    if (g_zone->malloc) dladdr((void *)g_zone->malloc, &symbol);
+    task_vm_info_data_t vi = {0}; mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    kern_return_t vr = task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vi, &count);
+    uint64_t available = 0;
+#if TARGET_OS_IPHONE
+    available = os_proc_available_memory();
+#endif
+    LOG("[RED] UE malloc failure op=%s size=%zu align=%u errno=%d used=%llu owner=%p old_size=%zu zone=%p version=%u implementation=%s",
+        op, n, a, error, (unsigned long long)atomic_load(&g_used), owner, p ? malloc_size(p) : 0,
+        g_zone, g_zone->version, symbol.dli_sname ? symbol.dli_sname : "unknown");
+    LOG("[RED] UE memory task_info=%d footprint=%llu headroom=%llu available=%llu",
+        vr, (unsigned long long)vi.phys_footprint, (unsigned long long)vi.limit_bytes_remaining,
+        (unsigned long long)available);
+    size_t probe_size = n && n <= 65536 ? n : 4096;
+    void *private_probe = malloc_zone_malloc(g_zone, probe_size);
+    int private_ok = private_probe != NULL;
+    if (private_probe) malloc_zone_free(g_zone, private_probe);
+    malloc_zone_t *def = malloc_default_zone();
+    void *default_probe = malloc_zone_malloc(def, probe_size);
+    int default_ok = default_probe != NULL;
+    if (default_probe) malloc_zone_free(def, default_probe);
+    const vm_size_t extent = 4u << 20;
+    kern_return_t mapped[2], released[2] = {-1, -1};
+    for (int i = 0; i < 2; i++) {
+        vm_address_t address = 0;
+        int flags = VM_FLAGS_ANYWHERE | (i ? 0 : VM_MAKE_TAG(VM_MEMORY_MALLOC_SMALL));
+        mapped[i] = vm_map(mach_task_self(), &address, extent, extent - 1, flags,
+            MEMORY_OBJECT_NULL, 0, FALSE, VM_PROT_READ | VM_PROT_WRITE,
+            VM_PROT_READ | VM_PROT_WRITE, VM_INHERIT_DEFAULT);
+        if (mapped[i] == KERN_SUCCESS) released[i] = vm_deallocate(mach_task_self(), address, extent);
+    }
+    LOG("[RED] UE allocation probes bytes=%zu selected_zone=%d default_zone=%d tagged_4MiB=%d untagged_4MiB=%d unmap=%d/%d",
+        probe_size, private_ok, default_ok, mapped[0], mapped[1], released[0], released[1]);
+    reporting = 0;
+    atomic_store(&state, 2);
+    errno = error;
+}
 static void used(int64_t d) {
     int64_t after = atomic_fetch_add(&g_used, d) + d, peak = atomic_load(&g_peak);
     while (after > peak && !atomic_compare_exchange_weak(&g_peak, &peak, after)) {}
@@ -65,7 +138,9 @@ static void used(int64_t d) {
 static size_t align_of(uint32_t a) { return a > 16 ? a : 16; }   // 0 = DEFAULT_ALIGNMENT, 16 bytes as Binned3 gives
 static void *alloc(size_t n, uint32_t a) {
     void *p = align_of(a) == 16 ? malloc_zone_malloc(g_zone, n ? n : 1) : malloc_zone_memalign(g_zone, align_of(a), n ? n : 1);
+    int error = errno;
     if (p) used((int64_t)malloc_size(p));
+    else alloc_failure("malloc", NULL, n, a, error);
     return p;
 }
 static void release(void *p) { if (p) { used(-(int64_t)malloc_size(p)); malloc_zone_free(g_zone, p); } }
@@ -73,7 +148,12 @@ static void *realloc_aligned(void *p, size_t n, uint32_t a) {
     if (!p) return alloc(n, a);
     if (!n) { release(p); return NULL; }
     size_t old = malloc_size(p);
-    if (align_of(a) == 16) { void *q = malloc_zone_realloc(g_zone, p, n); if (q) used((int64_t)malloc_size(q) - (int64_t)old); return q; }
+    if (align_of(a) == 16) {
+        void *q = malloc_zone_realloc(g_zone, p, n); int error = errno;
+        if (q) used((int64_t)malloc_size(q) - (int64_t)old);
+        else alloc_failure("realloc", p, n, a, error);
+        return q;
+    }
     if (!((uintptr_t)p & (align_of(a) - 1)) && old >= n) return p;
     void *q = alloc(n, a); if (!q) return NULL;
     memcpy(q, p, old < n ? old : n); release(p); return q;
@@ -131,7 +211,10 @@ void dm_ue_malloc_install(void) {
             g_vt[k_lay[L].try_realloc] = (void *)m_TryRealloc; g_vt[k_lay[L].free_] = (void *)m_Free;
             g_vt[k_lay[L].quantize] = (void *)m_QuantizeSize; g_vt[k_lay[L].get_size] = (void *)m_GetAllocationSize;
             for (int s = 0; s < 6 && k_lay[L].nothing[s]; s++) g_vt[k_lay[L].nothing[s]] = (void *)m_Nothing;
-            g_zone = malloc_create_zone(0, 0); malloc_set_zone_name(g_zone, "guest Unreal heap"); g_what = k_ue[k].what;
+            g_zone = ue_zone_create();
+            if (!g_zone) die("Unreal allocator zone creation failed");
+            LOG("Unreal allocator zone: %s (version %u)", malloc_get_zone_name(g_zone), g_zone->version);
+            g_what = k_ue[k].what;
             if (!k_ue[k].obj) { gate_obs_set(OBS_UE_MALLOC, obj_made); continue; }
             *(void **)(b + k_ue[k].obj) = g_vt;
             LOG("%s: Unreal's allocator (FMallocBinned3 at main+%#llx) runs on a host malloc zone", k_ue[k].what, (unsigned long long)k_ue[k].obj);
