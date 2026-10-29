@@ -41,7 +41,10 @@ jobs:
           for p in dm/host/hle_account.c dm/host/hle_fs.c dm/host/hle_uemalloc.c dm/host/local_users.h \
                    dm/host/tests/t_local_users.c dm/host/tests/t_ios_pad.c \
                    dm/tools/tests/test_local_users.py dm/tools/tests/test_ios_gamepad.py \
-                   dm/tools/tests/test_repack_input_fix.py scripts/repack_input_fix.py; do
+                   dm/tools/tests/test_repack_input_fix.py scripts/repack_input_fix.py \
+                   dm/gfx/hle_vi.c dm/gfx/vi_frame_history.h \
+                   dm/gfx/nvn/hle_nvn.c dm/gfx/nvn/nvn_mtl.m \
+                   dm/tools/tests/test_vi_frame_history.py; do
             mkdir -p "up/$(dirname "$p")"
             cp "fork/$p" "up/$p"
           done
@@ -55,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           cd up
-          python3 -m unittest dm.tools.tests.test_local_users dm.tools.tests.test_ios_gamepad dm.tools.tests.test_repack_input_fix dm.tools.tests.test_patches -v
+          python3 -m unittest dm.tools.tests.test_local_users dm.tools.tests.test_ios_gamepad dm.tools.tests.test_repack_input_fix dm.tools.tests.test_patches dm.tools.tests.test_shader_prep_policy dm.tools.tests.test_vi_frame_history -v
           clang -O1 -Wall -Wextra -Werror dm/host/tests/t_ios_pad.c -o "$RUNNER_TEMP/t_ios_pad"
           "$RUNNER_TEMP/t_ios_pad"
           # Full t_fs links ARM64 host-stack assembly and cannot run on this Intel runner.

@@ -16,6 +16,9 @@
 + dm/gfx/tools/nometal_run.py             # runs the shader chain without Apple's compiler
 + dm/gfx/tools/gl_prebuilt.py              # a LOVE game's GLSL from its own files: what DM_GL_CAPTURE would have written
 + dm/ios/Sources/dm_shader_prep.m         # first-launch shader compilation page
++ dm/ios/Sources/dm_shader_prep_policy.h # bounded optional full-library preparation
++ dm/tools/tests/test_shader_prep_policy.py # portable thermal admission tests
++ dm/gfx/tests/t_source_library.m        # native source-library mapping lifetime test
 + dm/ios/Sources/dm_shader_learn.h        # what the host learns about a shader's output types, from a refused pipeline
 + dm/ios/Sources/dm_shader_learn.m        # the rewrite that makes a colour output integer, and the rows it keeps
 + dm/ios/Sources/ios_pad_layout.h          # portable touch-overlay cycle, including the always reachable Pad switch
@@ -47,6 +50,7 @@
 ~ dm/host/hle_os.c              # profile alloc_big_align overridable at run time (DM_ALLOC_BIG_ALIGN): likewise
 ~ dm/host/main.c                # profile game_args overridable at run time (DM_GAME_ARGS): the shell compiles the placeholder's empty string
 ~ dm/gfx/nvn/nvn_mtl.m          # compile MSL source on the device; chain version read from the msl directory name; render_cond / tex_dyn_slots / tex_dirty_upload read from the environment
+~ dm/gfx/tests/Makefile         # native source-library mapping regression target
 ~ dm/gfx/nvn/hle_nvn.c          # profile tex_flush_upload / tex_dirty_upload / render_cond overridable at run time: the shell compiles the placeholder's 0
 ~ dm/gfx/gl/hle_gl.m            # a shader library the packing computer could not compile is compiled on the device instead
 ~ dm/gfx/vk/hle_vk.m            # same for Vulkan: vk_shaders.py --source-only writes MSL, the device compiles it

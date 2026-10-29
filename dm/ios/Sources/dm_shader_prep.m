@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "dm_shader_learn.h"
+#include "dm_shader_prep_policy.h"
 
 static void pl(NSString *s) { fprintf(stderr, "[dm] %s\n", s.UTF8String); }
 static int lg(void) { NSString *l = NSLocale.preferredLanguages.firstObject; return [l hasPrefix:@"zh"] ? 1 : [l hasPrefix:@"es"] ? 2 : 0; }   // 系统首选语言：1 中文 / 2 西语 / 0 其余英文 | System preferred language: 1 Chinese / 2 Spanish / 0 English otherwise
@@ -74,6 +75,10 @@ static NSString *marker(NSArray<NSString *> *src, NSString *dir) {
 // 要不要做：返回 1 = 已接手（显示进度页，做完调 done）；0 = 不用做（没有源码着色器，或上次已经做完）
 // Whether it needs to run: returns 1 = taken over (shows the progress page, calls done when finished); 0 = nothing to do (no source shaders, or already finished last time)
 int dm_shader_prep_begin(void (^done)(void)) {
+    if (!dm_shader_prep_all(getenv("DM_SHADER_PREP"))) {
+        pl(@"shader preparation: using demanded shaders and the renderer's PSO manifests");
+        return 0;
+    }
     NSString *dir = libdir();   // NVN 的版本目录；GL 包没有，源码在 msl/gl/src | the chain version's directory; a GL package has none, its sources are in msl/gl/src
     NSMutableArray<NSString *> *src = [shader_sources() mutableCopy];
     if (!src.count) return 0;
@@ -87,9 +92,9 @@ int dm_shader_prep_begin(void (^done)(void)) {
     title.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold]; sub.font = [UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightRegular]; note.font = [UIFont systemFontOfSize:13]; note.textColor = [UIColor colorWithWhite:0.6 alpha:1];
     bar.translatesAutoresizingMaskIntoConstraints = NO; bar.progressTintColor = [UIColor colorWithRed:0.78 green:0.36 blue:0.16 alpha:1]; [v addSubview:bar];
     title.text = L3(@"首次启动：正在准备着色器", @"First launch: preparing shaders", @"Primer inicio: preparando los shaders");
-    note.text = L3(@"只需要做这一次，做完以后游戏里不会因为着色器卡顿。\n系统更新或重装之后会再做一次。可以切到后台，回来接着做。",
-                   @"This is only needed once; afterwards the game will not stutter because of shaders.\nIt runs again after a system update or a reinstall. You can switch away and it continues when you come back.",
-                   @"Solo hace falta una vez; después, el juego no se trabará por los shaders.\nSe repite tras una actualización del sistema o una reinstalación. Puedes salir de la app y continuará al volver.");
+    note.text = L3(@"正在预编译全部着色器。设备温度过高或切到后台时会暂停。\n返回应用并降温后继续。",
+                   @"Precompiling all shaders. Preparation pauses while the device is hot or the app is inactive.\nIt resumes when you return and the device cools.",
+                   @"Precompilando todos los shaders. Se pausa si el dispositivo se calienta o la app queda inactiva.\nContinúa al volver y cuando se enfría.");
     [NSLayoutConstraint activateConstraints:@[
         [title.centerXAnchor constraintEqualToAnchor:v.centerXAnchor], [title.bottomAnchor constraintEqualToAnchor:bar.topAnchor constant:-22],
         [bar.centerXAnchor constraintEqualToAnchor:v.centerXAnchor], [bar.centerYAnchor constraintEqualToAnchor:v.centerYAnchor], [bar.widthAnchor constraintEqualToAnchor:v.widthAnchor multiplier:0.5],
@@ -97,8 +102,26 @@ int dm_shader_prep_begin(void (^done)(void)) {
         [note.centerXAnchor constraintEqualToAnchor:v.centerXAnchor], [note.topAnchor constraintEqualToAnchor:sub.bottomAnchor constant:22], [note.widthAnchor constraintLessThanOrEqualToAnchor:v.widthAnchor multiplier:0.8]]];
     [host addSubview:v];
     UIApplication.sharedApplication.idleTimerDisabled = YES;   // 这几分钟别自动锁屏 | do not auto-lock the screen during these few minutes
-    int total = (int)src.count, threads = (int)MAX(2, MIN(6, (NSInteger)NSProcessInfo.processInfo.activeProcessorCount - 2));
-    const char *te = getenv("DM_SHADER_PREP_THREADS"); if (te && atoi(te) > 0) threads = atoi(te);   // 测试开关：指定并行数 | test switch: set the degree of parallelism
+    const char *te = getenv("DM_SHADER_PREP_THREADS");
+    int total = (int)src.count, threads = dm_shader_prep_workers((int)NSProcessInfo.processInfo.activeProcessorCount, te ? atoi(te) : 0);
+    NSCondition *gate = [NSCondition new];
+    __block int next = 0, thermal = (int)NSProcessInfo.processInfo.thermalState;
+    __block int active = UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+    __block int low_power = NSProcessInfo.processInfo.lowPowerModeEnabled;
+    NSMutableArray *observers = [NSMutableArray array];
+    for (NSNotificationName name in @[NSProcessInfoThermalStateDidChangeNotification,
+            NSProcessInfoPowerStateDidChangeNotification, UIApplicationDidBecomeActiveNotification,
+            UIApplicationWillResignActiveNotification, UIApplicationDidEnterBackgroundNotification]) {
+        id observer = [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+            [gate lock];
+            thermal = (int)NSProcessInfo.processInfo.thermalState;
+            low_power = NSProcessInfo.processInfo.lowPowerModeEnabled;
+            if ([note.name isEqual:UIApplicationWillResignActiveNotification] || [note.name isEqual:UIApplicationDidEnterBackgroundNotification]) active = 0;
+            else active = UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+            [gate broadcast]; [gate unlock];
+        }];
+        [observers addObject:observer];
+    }
     pl([NSString stringWithFormat:@"着色器准备：开始，共 %d 个，%d 线程", total, threads]);
     CFAbsoluteTime t0 = CFAbsoluteTimeGetCurrent(); __block _Atomic int fin = 0, bad = 0;
     void (^tick)(void) = ^{ int n = atomic_load(&fin); double el = CFAbsoluteTimeGetCurrent() - t0, left = n > 20 ? el / n * (total - n) : -1;
@@ -108,9 +131,14 @@ int dm_shader_prep_begin(void (^done)(void)) {
     tick();
     NSTimer *tm = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *t) { tick(); }];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        id<MTLDevice> dev = MTLCreateSystemDefaultDevice(); dispatch_semaphore_t sem = dispatch_semaphore_create(threads); dispatch_group_t g = dispatch_group_create();
-        for (NSString *p in src) { dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-            dispatch_group_async(g, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ @autoreleasepool {
+        id<MTLDevice> dev = MTLCreateSystemDefaultDevice(); dispatch_group_t g = dispatch_group_create();
+        for (int worker = 0; worker < threads; worker++) {
+            dispatch_group_async(g, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+              for (;;) { @autoreleasepool {
+                [gate lock];
+                while (next < total && worker >= dm_shader_prep_limit(threads, thermal, active, low_power)) [gate wait];
+                if (next >= total) { [gate unlock]; break; }
+                NSString *p = src[next++]; [gate unlock];
                 NSString *txt = [NSString stringWithContentsOfFile:p encoding:NSUTF8StringEncoding error:nil]; NSError *e = nil;
                 id<MTLLibrary> l = txt ? [dev newLibraryWithSource:txt options:nil error:&e] : nil;   // 与游戏里建库用的是同一个调用、同样的参数：缓存才对得上 | the same call with the same arguments as the game uses to build the library: only then does the cache match
                 if (!l && atomic_fetch_add(&bad, 1) < 5) pl([NSString stringWithFormat:@"【红】着色器准备：%@ 编不过：%@", p.lastPathComponent, e.localizedDescription ?: @"读不了"]);
@@ -127,12 +155,18 @@ int dm_shader_prep_begin(void (^done)(void)) {
                     if (!l2 && atomic_fetch_add(&bad, 1) < 5) pl([NSString stringWithFormat:@"【红】着色器准备：%@ 的整数输出版本编不过：%@", p.lastPathComponent, e2.localizedDescription ?: @"改写没做成"]);
                 }
                 int n = atomic_fetch_add(&fin, 1) + 1; if (n % 500 == 0) pl([NSString stringWithFormat:@"着色器准备：%d / %d，已用 %.0f 秒，温控档位 %ld", n, total, CFAbsoluteTimeGetCurrent() - t0, (long)NSProcessInfo.processInfo.thermalState]);
-                dispatch_semaphore_signal(sem); } }); }
+                [gate lock]; [gate broadcast]; [gate unlock];
+              } }
+            });
+        }
         dispatch_group_wait(g, DISPATCH_TIME_FOREVER);
         double el = CFAbsoluteTimeGetCurrent() - t0; int nb = atomic_load(&bad);
         pl([NSString stringWithFormat:@"着色器准备：完成 %d 个，编不过 %d 个，用时 %.1f 秒，%d 线程，结束时温控档位 %ld", total, nb, el, threads, (long)NSProcessInfo.processInfo.thermalState]);
         if (!nb) [@"ok" writeToFile:mk atomically:YES encoding:NSUTF8StringEncoding error:nil];   // 有编不过的就不记完成：下次启动再来一遍（已编的很快） | if any failed to compile, do not record completion: run it again at the next launch (the already compiled ones are fast)
-        dispatch_async(dispatch_get_main_queue(), ^{ [tm invalidate]; [v removeFromSuperview]; UIApplication.sharedApplication.idleTimerDisabled = NO; done(); });
+        dispatch_async(dispatch_get_main_queue(), ^{
+            for (id observer in observers) [NSNotificationCenter.defaultCenter removeObserver:observer];
+            [tm invalidate]; [v removeFromSuperview]; UIApplication.sharedApplication.idleTimerDisabled = NO; done();
+        });
     });
     return 1;
 }

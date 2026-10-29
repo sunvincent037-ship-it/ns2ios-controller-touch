@@ -16,6 +16,7 @@
 #include "nvn_pace.h"
 #include "nvn_fstep.h"
 #include "nvn_timestamp.h"
+#include "../vi_frame_history.h"
 #include "../../host/front.h"
 #include "nvn_dirty.h"
 #include <mach/mach_time.h>
@@ -1301,7 +1302,24 @@ __attribute__((weak)) void dm_thread_cpu(char *out, size_t n, double secs) { (vo
 void mtl_res_stats(char *out, size_t n);
 void mtl_barrier_stats(uint64_t *skip, uint64_t *full);
 extern uint32_t mtl_present_qos(void);
-static uint64_t g_frame;
+static _Atomic uint64_t g_frame;
+static pthread_mutex_t g_vi_history_mu = PTHREAD_MUTEX_INITIALIZER;
+static dm_vi_history g_vi_history;
+static int64_t vi_completed_tick(uint64_t ticket) {
+    double t = mtl_presented_time(ticket);
+    if (t <= 0) return t < 0 ? -1 : 0;
+    // Drawable timestamps use mach absolute time. The history applies each
+    // frame's fixed queue-time anchor into the guest tick domain.
+    return dm_vi_ns_ticks((uint64_t)(t * 1e9));
+}
+int dm_nvn_frame_history(void *out, int n) {
+    if (!out || n == 0) return DM_VI_HISTORY_CAPACITY;
+    if (n < 0) return 0;
+    pthread_mutex_lock(&g_vi_history_mu);
+    int result = dm_vi_history_list(&g_vi_history, out, n, vi_completed_tick);
+    pthread_mutex_unlock(&g_vi_history_mu);
+    return result;
+}
 static uint64_t g_acq_wait_ns, g_pq_wait_ns;   // Accumulated display-link wait / wait for the present queue to return inside acquire, recorded per frame at present (there can be several acquires within one frame)
 static uint64_t g_fs_start, g_fs_wait;   // frame step (fstep_tick): when the first acquire after a present returned (the frame's start, 0 = none yet), and its pacing wait
 uint64_t dm_nvn_frame_count(void) { return g_frame; }
@@ -1816,6 +1834,10 @@ NVN(nvnQueuePresentTexture, void, NVNqueue *q, NVNwindow *w, int idx) {
     if (idx >= 0 && idx < o->ntex && idx < 4) {   // enqueue only, return immediately
         const tex_t *t = CTX(o->tex[idx]); int lc[4];
         o->ticket[idx] = mtl_present(t, present_period(o) / 1e9, present_crop(o->crop, (int)t->d.width, (int)t->d.height, lc));
+        pthread_mutex_lock(&g_vi_history_mu);
+        int64_t host_tick = dm_vi_ns_ticks(now_ns());
+        dm_vi_history_push(&g_vi_history, g_frame + 1, o->ticket[idx], dm_vi_ns_ticks(guest_ns()), host_tick);
+        pthread_mutex_unlock(&g_vi_history_mu);
     }
     gfx_leave();
     atomic_fetch_add(&g_nvn_ns, now_ns() - t0);
