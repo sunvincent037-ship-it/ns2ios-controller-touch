@@ -18,6 +18,7 @@
 #include <os/proc.h>   // os_proc_available_memory: for the memory readout line
 #endif
 #include "nvn_mtl.h"
+#include "../msl_source_options.h"
 #include "nvn_obj.h"
 #include "../tex/nvn_fmt_mtl.h"
 #include "../tex/nvn_deswizzle.h"
@@ -3651,7 +3652,7 @@ static id<MTLLibrary> lib_from_file(NSString *path, NSError **err) {
         // dispatch_data, but the source path must release it here, including
         // invalid UTF-8 and Metal compile failures.
         munmap(m, len);
-        id<MTLLibrary> lib = src ? [g_dev newLibraryWithSource:src options:nil error:err] : nil;
+        id<MTLLibrary> lib = src ? [g_dev newLibraryWithSource:src options:dm_msl_source_options() error:err] : nil;
         if (!src && err) *err = [NSError errorWithDomain:@"dm" code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"not a compiled library and not readable source: %@", path]}];
         return lib;
     }
@@ -5561,7 +5562,7 @@ static id<MTLFunction> learn_fn(NvShader *fs, unsigned mask) {
     free(w);
     if (!t2) { MLOG("[RED] shader %s: the rewritten source is not text", fs->key); return nil; }
     NSError *ce = nil;
-    id<MTLLibrary> lib = [g_dev newLibraryWithSource:t2 options:nil error:&ce];   // the same call dm_shader_prep makes: the cache answers at once
+    id<MTLLibrary> lib = [g_dev newLibraryWithSource:t2 options:dm_msl_source_options() error:&ce];   // the same call dm_shader_prep makes: the cache answers at once
     if (!lib) { MLOG("[RED] shader %s: the rewritten source does not compile: %s", fs->key, ce.localizedDescription.UTF8String); return nil; }
     id<MTLFunction> fn = fn4_note([lib newFunctionWithName:fs->ventry], lib, fs->ventry, nil);
     if (!fn) { MLOG("[RED] shader %s: the rewritten source has no %s", fs->key, fs->ventry.UTF8String); return nil; }

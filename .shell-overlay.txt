@@ -19,6 +19,9 @@
 + dm/ios/Sources/dm_shader_prep_policy.h # bounded optional full-library preparation
 + dm/tools/tests/test_shader_prep_policy.py # portable thermal admission tests
 + dm/gfx/tests/t_source_library.m        # native source-library mapping lifetime test
++ dm/gfx/msl_source_options.h           # source compiler contract matches offline iOS libraries
++ dm/gfx/tests/t_msl_source_options.m   # native compiler-options check, no GPU required
++ dm/tools/tests/test_msl_source_options.py # shared runtime/preparation compiler contract
 + dm/ios/Sources/dm_shader_learn.h        # what the host learns about a shader's output types, from a refused pipeline
 + dm/ios/Sources/dm_shader_learn.m        # the rewrite that makes a colour output integer, and the rows it keeps
 + dm/ios/Sources/ios_pad_layout.h          # portable touch-overlay cycle, including the always reachable Pad switch

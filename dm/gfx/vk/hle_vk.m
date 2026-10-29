@@ -19,6 +19,7 @@
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_vi.h>
 #import <Metal/Metal.h>
+#include "../msl_source_options.h"
 #include <CommonCrypto/CommonDigest.h>
 #include <mach-o/getsect.h>
 #include <mach-o/ldsyms.h>
@@ -188,7 +189,7 @@ static id<MTLFunction> sh_src_fn(const char *key, int variant) {
         NSString *txt = [NSString stringWithContentsOfFile:p encoding:NSUTF8StringEncoding error:nil];
         if (!txt) { snprintf(g_srcwhy, sizeof g_srcwhy, "%s cannot be read", p.UTF8String); return nil; }
         NSError *err = nil;
-        lib = [g_dev newLibraryWithSource:txt options:nil error:&err];
+        lib = [g_dev newLibraryWithSource:txt options:dm_msl_source_options() error:&err];
         if (!lib) { snprintf(g_srcwhy, sizeof g_srcwhy, "%s does not compile: %s", p.lastPathComponent.UTF8String, err.localizedDescription.UTF8String); return nil; }
         cache[k] = lib;
     }

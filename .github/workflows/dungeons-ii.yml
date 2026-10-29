@@ -44,6 +44,7 @@ jobs:
                    dm/tools/tests/test_repack_input_fix.py scripts/repack_input_fix.py \
                    dm/gfx/hle_vi.c dm/gfx/vi_frame_history.h \
                    dm/gfx/nvn/hle_nvn.c dm/gfx/nvn/nvn_mtl.m \
+                   dm/gfx/gl/hle_gl.m dm/gfx/vk/hle_vk.m dm/gfx/tests/Makefile \
                    dm/tools/tests/test_vi_frame_history.py; do
             mkdir -p "up/$(dirname "$p")"
             cp "fork/$p" "up/$p"
@@ -58,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           cd up
-          python3 -m unittest dm.tools.tests.test_local_users dm.tools.tests.test_ios_gamepad dm.tools.tests.test_repack_input_fix dm.tools.tests.test_patches dm.tools.tests.test_shader_prep_policy dm.tools.tests.test_vi_frame_history -v
+          python3 -m unittest dm.tools.tests.test_local_users dm.tools.tests.test_ios_gamepad dm.tools.tests.test_repack_input_fix dm.tools.tests.test_patches dm.tools.tests.test_shader_prep_policy dm.tools.tests.test_vi_frame_history dm.tools.tests.test_msl_source_options -v
           clang -O1 -Wall -Wextra -Werror dm/host/tests/t_ios_pad.c -o "$RUNNER_TEMP/t_ios_pad"
           "$RUNNER_TEMP/t_ios_pad"
           # Full t_fs links ARM64 host-stack assembly and cannot run on this Intel runner.
@@ -98,9 +99,11 @@ jobs:
               build = '9e9d887d59f7f7db176b35e3379258b9'
               assert build.encode() in host, 'compiled host lacks the measured allocator build'
               assert b'DM_LOCAL_USERS' in host, 'compiled host lacks local-user configuration'
+              assert b'relaxed-invariant-v1' in host, 'compiled host lacks source shader compiler contract'
               marker = {
                   'feature': 'ios-independent-controllers-touch-v1',
                   'local_coop_feature': 'ios-local-users-v1',
+                  'source_shader_options': 'relaxed-invariant-v1',
                   'allocator_builds': [build],
                   'host_sha256': hashlib.sha256(host).hexdigest(),
                   'fork_commit': os.environ['GITHUB_SHA'],

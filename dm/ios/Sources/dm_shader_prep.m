@@ -19,6 +19,7 @@
 #include <string.h>
 #include "dm_shader_learn.h"
 #include "dm_shader_prep_policy.h"
+#include "../../gfx/msl_source_options.h"
 
 static void pl(NSString *s) { fprintf(stderr, "[dm] %s\n", s.UTF8String); }
 static int lg(void) { NSString *l = NSLocale.preferredLanguages.firstObject; return [l hasPrefix:@"zh"] ? 1 : [l hasPrefix:@"es"] ? 2 : 0; }   // 系统首选语言：1 中文 / 2 西语 / 0 其余英文 | System preferred language: 1 Chinese / 2 Spanish / 0 English otherwise
@@ -61,6 +62,7 @@ static NSString *marker(NSArray<NSString *> *src, NSString *dir) {
     // (inputs.tsv: the game and the digest of the profile inputs) is what distinguishes one package from another; a package
     // without it falls back to a digest of the directory's contents.
     NSString *tag = dir.lastPathComponent ?: @"gl";
+    tag = [tag stringByAppendingFormat:@"-%s", DM_MSL_SOURCE_OPTIONS_TAG];
     NSString *stamp = [NSString stringWithContentsOfFile:[(dir ?: [msldir() stringByAppendingPathComponent:@"gl"]) stringByAppendingPathComponent:@"inputs.tsv"] encoding:NSUTF8StringEncoding error:nil];
     for (NSString *ln in [stamp componentsSeparatedByString:@"\n"]) {
         NSArray *c = [ln componentsSeparatedByString:@"\t"];
@@ -140,7 +142,7 @@ int dm_shader_prep_begin(void (^done)(void)) {
                 if (next >= total) { [gate unlock]; break; }
                 NSString *p = src[next++]; [gate unlock];
                 NSString *txt = [NSString stringWithContentsOfFile:p encoding:NSUTF8StringEncoding error:nil]; NSError *e = nil;
-                id<MTLLibrary> l = txt ? [dev newLibraryWithSource:txt options:nil error:&e] : nil;   // 与游戏里建库用的是同一个调用、同样的参数：缓存才对得上 | the same call with the same arguments as the game uses to build the library: only then does the cache match
+                id<MTLLibrary> l = txt ? [dev newLibraryWithSource:txt options:dm_msl_source_options() error:&e] : nil;   // Keep the same options as the runtime so Metal's cache matches.
                 if (!l && atomic_fetch_add(&bad, 1) < 5) pl([NSString stringWithFormat:@"【红】着色器准备：%@ 编不过：%@", p.lastPathComponent, e.localizedDescription ?: @"读不了"]);
                 // 这个着色器以前被拒过管线：把它「输出声明成整数」的版本也编一遍（同一个调用、同样的文本，游戏里建库时缓存直接命中，不再卡）
                 // This shader had a pipeline refused before, so the version with those outputs declared integer is compiled here
@@ -151,7 +153,7 @@ int dm_shader_prep_begin(void (^done)(void)) {
                     char *w = dm_shader_learn_rewrite(cs, strlen(cs), lm, &on);
                     NSString *t2 = w ? [[NSString alloc] initWithBytes:w length:on encoding:NSUTF8StringEncoding] : nil;
                     free(w);
-                    NSError *e2 = nil; id<MTLLibrary> l2 = t2 ? [dev newLibraryWithSource:t2 options:nil error:&e2] : nil;
+                    NSError *e2 = nil; id<MTLLibrary> l2 = t2 ? [dev newLibraryWithSource:t2 options:dm_msl_source_options() error:&e2] : nil;
                     if (!l2 && atomic_fetch_add(&bad, 1) < 5) pl([NSString stringWithFormat:@"【红】着色器准备：%@ 的整数输出版本编不过：%@", p.lastPathComponent, e2.localizedDescription ?: @"改写没做成"]);
                 }
                 int n = atomic_fetch_add(&fin, 1) + 1; if (n % 500 == 0) pl([NSString stringWithFormat:@"着色器准备：%d / %d，已用 %.0f 秒，温控档位 %ld", n, total, CFAbsoluteTimeGetCurrent() - t0, (long)NSProcessInfo.processInfo.thermalState]);
