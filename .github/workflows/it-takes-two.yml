@@ -46,7 +46,9 @@ jobs:
                    dm/gfx/hle_vi.c dm/gfx/vi_frame_history.h \
                    dm/gfx/nvn/hle_nvn.c dm/gfx/nvn/nvn_mtl.m \
                    dm/gfx/gl/hle_gl.m dm/gfx/vk/hle_vk.m dm/gfx/tests/Makefile \
-                   dm/tools/tests/test_vi_frame_history.py; do
+                   dm/tools/tests/test_vi_frame_history.py \
+                   dm/host/display_aspect.h dm/host/hle_display.c dm/host/dm.h dm/host/main.c dm/host/Makefile \
+                   dm/ios/Sources/front_ios.m dm/tools/tests/test_display_aspect.py; do
             mkdir -p "up/$(dirname "$p")"
             cp "fork/$p" "up/$p"
           done
@@ -60,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           cd up
-          python3 -m unittest dm.tools.tests.test_local_users dm.tools.tests.test_ios_gamepad dm.tools.tests.test_repack_input_fix dm.tools.tests.test_patches dm.tools.tests.test_shader_prep_policy dm.tools.tests.test_vi_frame_history dm.tools.tests.test_msl_source_options dm.tools.tests.test_dungeons_performance -v
+          python3 -m unittest dm.tools.tests.test_local_users dm.tools.tests.test_ios_gamepad dm.tools.tests.test_repack_input_fix dm.tools.tests.test_patches dm.tools.tests.test_shader_prep_policy dm.tools.tests.test_vi_frame_history dm.tools.tests.test_msl_source_options dm.tools.tests.test_dungeons_performance dm.tools.tests.test_display_aspect -v
           clang -O1 -Wall -Wextra -Werror dm/host/tests/t_ios_pad.c -o "$RUNNER_TEMP/t_ios_pad"
           "$RUNNER_TEMP/t_ios_pad"
           # Full t_fs links ARM64 host-stack assembly and cannot run on this Intel runner.
@@ -104,12 +106,15 @@ jobs:
               assert b'Unreal t.MaxFPS (It Takes Two)' in host, 'compiled host lacks exact-build engine frame limits'
               assert b'UE malloc failure' in host, 'compiled host lacks allocator failure evidence'
               assert b'DM_UE_ALLOCATOR' in host, 'compiled host lacks controlled zone selection'
+              assert b'DM_DISPLAY_ASPECT' in host, 'compiled host lacks the opt-in display aspect'
+              assert b'native viewport request' in host, 'compiled host lacks the measured viewport observation'
               marker = {
                   'feature': 'ios-independent-controllers-touch-v1',
                   'local_coop_feature': 'ios-local-users-v1',
                   'source_shader_options': 'relaxed-invariant-v1',
                   'it_takes_two_performance': 'native-ue-limits-v1',
                   'it_takes_two_allocator': 'zone-comparison-diagnostics-v1',
+                  'it_takes_two_display': 'native-viewport-observation-v1',
                   'device_acceptance': 'pending',
                   'allocator_builds': [build],
                   'host_sha256': hashlib.sha256(host).hexdigest(),

@@ -1,4 +1,4 @@
-// iOS front end (the iOS implementation of front.h): a centered 16:9 Metal view (black bars on both sides) + a full-screen virtual gamepad layer (DmGamepad.m, controls drawn over the picture).
+// iOS front end (front.h): a uniformly fitted Metal view, 16:9 by default or the explicit display aspect, and a full-screen virtual gamepad layer.
 // The host runs on the big-stack thread started by main.m; front_run runs the guest directly on the calling thread.
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -8,6 +8,7 @@
 #include "front.h"
 #include "hle.h"
 #include "dm.h"
+#include "display_aspect.h"
 #include "haptics_apple.h"
 
 UIView *dm_gamepad_view(CGRect frame);
@@ -85,8 +86,8 @@ static void launcher_done(void) { [g_root startGame]; }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     CGRect b = self.view.bounds; if (!self.game) return;
-    CGFloat w = b.size.width, h = b.size.height;   // Fit 16:9 into the whole screen
-    if (w / h > 16.0 / 9.0) w = h * 16.0 / 9.0; else h = w * 9.0 / 16.0;
+    double w = b.size.width, h = b.size.height;
+    dm_display_fit(&w, &h, dm_display_aspect(getenv("DM_DISPLAY_ASPECT")));
     self.game.frame = CGRectMake(floor((b.size.width - w) / 2), floor((b.size.height - h) / 2), w, h);
     if (self.fps) {   // the top row's free stretch: right of DmGamepad.m's L3 key (102 + 17 of its units from the safe edge), level with − / + (22 units down); u is its unit
         CGRect s = UIEdgeInsetsInsetRect(b, self.view.safeAreaInsets); CGFloat u = MIN(b.size.height / 430.0, 1.3);
