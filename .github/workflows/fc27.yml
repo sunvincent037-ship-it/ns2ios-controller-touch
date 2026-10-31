@@ -48,6 +48,16 @@ jobs:
           git -C source apply --check "$GITHUB_WORKSPACE/payload/fc27-cloud/runtime.patch"
           git -C source apply "$GITHUB_WORKSPACE/payload/fc27-cloud/runtime.patch"
           cp -R payload/fc27-cloud/overlay/. source/
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('source/dm/ios/tools/shell_build.sh')
+          s = p.read_text()
+          first = s.index('# The memory limit is part of the package')
+          last = s.index('n=$(otool -l', first)
+          s = s[:first] + '# This workbench delivers unsigned runtime inputs; the user signs with official SideStore.\n' + s[last:]
+          assert 'codesign --force' not in s
+          p.write_text(s)
+          PY
           clang -std=c11 -Wall -Wextra -Werror -Isource/dm/host payload/fc27-cloud/t_shell_module_name.c -o "$RUNNER_TEMP/test-shell"
           "$RUNNER_TEMP/test-shell"
           clang -std=c11 -Wall -Wextra -Werror -Isource/dm/host source/dm/host/tests/t_native_display.c -lm -o "$RUNNER_TEMP/test-display"
@@ -55,7 +65,7 @@ jobs:
       - name: Verify shader options and bounded preparation
         working-directory: source
         run: |
-          python3 -m unittest dm.tools.tests.test_msl_source_options dm.tools.tests.test_shader_prep_policy -v
+          python3 -m unittest dm.tools.tests.test_msl_source_options dm.tools.tests.test_shader_prep_policy dm.tools.tests.test_nvn_rec_blit_options -v
       - name: Install ordinary build dependencies
         run: |
           brew install xcodegen
@@ -86,6 +96,7 @@ jobs:
                        'host_sha256': hashlib.sha256(host).hexdigest(),
                        'nro_layout': 'table-v1', 'shader_options': 'relaxed-invariant-v1',
                        'native_display': 'oe-resolution-v1 (opt-in, engine/device acceptance pending)',
+                       'deferred_copy_options': 'depth-stencil-planes-v1',
                        'shader_preparation_workers_max': 2, 'device_acceptance': 'pending'}
               z.writestr('Payload/DmIOS.app/dm/fc27_runtime.json', json.dumps(stamp, indent=2))
           PY
