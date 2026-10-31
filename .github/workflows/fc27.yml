@@ -111,11 +111,21 @@ jobs:
                        'fc27_native_engine': 'guarded-settings-v1 (opt-in; pending)',
                        'shader_preparation_workers_max': 2, 'device_acceptance': 'pending'}
               z.writestr('Payload/DmIOS.app/dm/fc27_runtime.json', json.dumps(stamp, indent=2))
+          # Packaging reuses all unchanged game-independent fonts from v5.
+          small = root / 'fc27-runtime/build/shell/fc27-small-runtime.zip'
+          with zipfile.ZipFile(shell) as src, zipfile.ZipFile(small, 'w', compression=zipfile.ZIP_DEFLATED) as dst:
+              for name in ('Payload/DmIOS.app/DmIOS', 'Payload/DmIOS.app/dm/fc27_runtime.json', 'Payload/DmIOS.app/dm/shell_info.txt'):
+                  dst.writestr(name, src.read(name))
           PY
       - uses: actions/upload-artifact@v4
         with:
           name: fc27-game-free-shell
           path: ${{ runner.temp }}/fc27-runtime/build/shell/nxnative-shell-build-input.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fc27-small-runtime
+          path: ${{ runner.temp }}/fc27-runtime/build/shell/fc27-small-runtime.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: failure()
