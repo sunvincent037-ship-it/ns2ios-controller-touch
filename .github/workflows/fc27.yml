@@ -22,7 +22,25 @@ jobs:
         with:
           repository: xinerqu/ns2ios-shell
           ref: d3c0c601b46f8d51a3a15bf09ff74ecb4581aefd
+          path: fork
+      - uses: actions/checkout@v4
+        with:
+          repository: seedds/nxnative
+          ref: 6d880d237a7684365ca88236e5a5ff34921adf7d
           path: source
+      - name: Assemble the complete pinned upstream and shell overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            p="${line#+}"; p="${p%%#*}"; p="$(echo "$p" | tr -d '[:space:]')"
+            [ -n "$p" ] || continue
+            mkdir -p "source/$(dirname "$p")"
+            cp -a "fork/$p" "source/$p"
+          done < <(grep -E '^\+' fork/.shell-overlay.txt)
+          for patch in "$GITHUB_WORKSPACE"/fork/.shell-patches/*.patch; do
+            git -C source apply --whitespace=nowarn "$patch"
+          done
       - name: Apply only the reviewed runtime source
         shell: bash
         run: |
