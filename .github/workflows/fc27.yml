@@ -66,6 +66,14 @@ jobs:
         working-directory: source
         run: |
           python3 -m unittest dm.tools.tests.test_msl_source_options dm.tools.tests.test_shader_prep_policy dm.tools.tests.test_nvn_rec_blit_options -v
+      - name: Verify exact-build frame limits and native-display contract
+        working-directory: source
+        run: |
+          python3 dm/games/game.py header 0000000000000000 "$RUNNER_TEMP/game_profile.h"
+          clang -std=gnu11 -Wall -Wextra -Wno-missing-field-initializers -I "$RUNNER_TEMP" -I dm/host dm/host/tests/t_fpslock.c -o "$RUNNER_TEMP/test-fps" -lm
+          "$RUNNER_TEMP/test-fps"
+          clang -std=c11 -Wall -Wextra -Werror -I dm/host dm/host/tests/t_fc27_native_display.c -o "$RUNNER_TEMP/test-fc27-display"
+          "$RUNNER_TEMP/test-fc27-display"
       - name: Install ordinary build dependencies
         run: |
           brew install xcodegen
@@ -90,6 +98,8 @@ jobs:
               assert b'shell NRO table v1' in host
               assert b'relaxed-invariant-v1' in host
               assert b'native-display-v1' in host
+              assert b'fc27-native-display-v1' in host
+              assert b'fb81983aa1cc3a2e97402497e2ca6528' in host
               assert not any('romfs' in n.lower() or 'Guest.framework' in n for n in z.namelist())
               stamp = {'payload_commit': os.environ['PAYLOAD_COMMIT'],
                        'base_source': 'd3c0c601b46f8d51a3a15bf09ff74ecb4581aefd',
@@ -97,6 +107,8 @@ jobs:
                        'nro_layout': 'table-v1', 'shader_options': 'relaxed-invariant-v1',
                        'native_display': 'oe-resolution-v1 (opt-in, engine/device acceptance pending)',
                        'deferred_copy_options': 'depth-stencil-planes-v1',
+                       'fc27_frame_regulator': 'exact-build-fb81983a-v1',
+                       'fc27_native_engine': 'guarded-settings-v1 (opt-in; pending)',
                        'shader_preparation_workers_max': 2, 'device_acceptance': 'pending'}
               z.writestr('Payload/DmIOS.app/dm/fc27_runtime.json', json.dumps(stamp, indent=2))
           PY

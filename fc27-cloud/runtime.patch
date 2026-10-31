@@ -403,3 +403,66 @@ new file mode 100644
 +
 +if __name__ == "__main__":
 +    unittest.main()
+diff --git a/dm/host/hle_fpslock.c b/dm/host/hle_fpslock.c
+index a767e88..89a83cc 100644
+--- a/dm/host/hle_fpslock.c
++++ b/dm/host/hle_fpslock.c
+@@ -77,11 +77,48 @@ static const struct { const char *build, *what; uint64_t ptr_off; uint32_t field
+     // this row the game keeps 30 fps at the right speed (the simulation at 60 and the regulator at 30: match clock as at 30). The game asks for present interval 2
+     // (BaseDisplaySettings.PresentInterval), which the profile's present_interval display ignores
+     { "a48c0de3bc353efa0e4d359bde05ef24", "FIFA frame regulator", 0xda20e38, 0x8, FPS_F64, 2, 0 },
++    // EA SPORTS FC 27 1.8c.cab1: independently traced in this main. The unique vector #30 at +0x5d4a7d8
++    // loads [main+0xda19e38] and stores both doubles at +8; +0x99e1e24 publishes that object.
++    // Do not reuse the newer build's cache address. Real cadence and simulation speed still need device validation.
++    { "fb81983aa1cc3a2e97402497e2ca6528", "FIFA frame regulator", 0xda19e38, 0x8, FPS_F64, 2, 0 },
+ };
+ #define NLOCKS ((int)(sizeof k_locks / sizeof k_locks[0]))
+ 
+ static int rd(uint64_t a, void *out, size_t n) { vm_size_t got = 0; return a >= 0x1000 && vm_read_overwrite(mach_task_self(), (vm_address_t)a, n, (vm_address_t)out, &got) == KERN_SUCCESS && got == n; }
+ 
++#ifdef DM_SHELL
++#include "native_display.h"
++#include "fc27_native_display_core.h"
++static int fc27_display_read(void *ctx, uint64_t address, void *out, size_t size) {
++    (void)ctx; return rd(address, out, size);
++}
++static void fc27_display_write(void *ctx, uint64_t address, const void *in, size_t size) {
++    (void)ctx; void *out = (void *)(uintptr_t)address;
++    dm_guest_write_prepare(out, size); memcpy(out, in, size);
++}
++static void fc27_display_tick(void) {
++    int width = 0, height = 0;
++    if (!dm_native_display_read(&width, &height)) return;
++    static module_t *main_module; static int searched, rejected, changes;
++    if (rejected) return;
++    if (!searched) {
++        searched = 1;
++        for (int i = 0; i < g_nmod; i++)
++            if (!strcmp(g_mod[i].name, "main")) main_module = &g_mod[i];
++    }
++    if (!main_module) return;
++    int result = fc27_native_display_apply(main_module->build_id,
++        (uint64_t)(uintptr_t)main_module->base, width, height,
++        fc27_display_read, fc27_display_write, NULL);
++    if (result == FC27_DISPLAY_REJECT) {
++        rejected = 1;
++        LOG("fc27-native-display-v1: build/object/instruction guard rejected; leaving engine settings");
++    } else if (result == FC27_DISPLAY_CHANGED && changes++ < 8) {
++        LOG("fc27-native-display-v1: requested engine swapchain %dx%d; camera/UI/device validation pending", width, height);
++    }
++}
++#endif
++
+ // NieR 1.0.3 exposes its preset minimum but ships fixed mode-specific fallbacks.
+ // Keep the native current-scale and UV controller intact; only select its
+ // verified lower bound. This is independent of the FPS choice.
+@@ -209,6 +246,9 @@ static void fb_tick(int target, const char *src) {
+ }
+ 
+ void dm_fps_lock_tick(void) {
++#ifdef DM_SHELL
++    fc27_display_tick();   // independent from the frame cap, exact-build opt-in
++#endif
+     dynamic_resolution_tick();   // separate from the FPS cap
+     static int state = -2, rows[NLOCKS], nrow, nlog[NLOCKS], target, nier; static uint8_t *base; static const char *src; static uint32_t display;
+     if (state == -1) return;
