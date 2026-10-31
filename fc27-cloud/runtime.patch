@@ -1,0 +1,118 @@
+diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
+index 3a16c4d..1320ee7 100644
+--- a/dm/gfx/gl/hle_gl.m
++++ b/dm/gfx/gl/hle_gl.m
+@@ -20,6 +20,7 @@
+ #include "../../host/hle.h"
+ #include "../nvn/nvn_mtl.h"
+ #import <Metal/Metal.h>
++#include "../msl_source_options.h"
+ #include <CommonCrypto/CommonDigest.h>
+ #include <mach/mach.h>
+ #include <mach-o/getsect.h>
+@@ -223,7 +224,7 @@ static id<MTLFunction> sh_src_fn(const char *key, int frag) {
+         NSString *txt = [NSString stringWithContentsOfFile:p encoding:NSUTF8StringEncoding error:nil];
+         if (!txt) { snprintf(g_srcwhy, sizeof g_srcwhy, "%s cannot be read", p.UTF8String); return nil; }
+         NSError *err = nil;
+-        lib = [g_dev newLibraryWithSource:txt options:nil error:&err];
++        lib = [g_dev newLibraryWithSource:txt options:dm_msl_source_options() error:&err];
+         if (!lib) { snprintf(g_srcwhy, sizeof g_srcwhy, "%s does not compile: %s", p.lastPathComponent.UTF8String, err.localizedDescription.UTF8String); return nil; }
+         cache[k] = lib;
+         OLOG("Compiled shader %s", key);
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 2e59f15..59fd3c7 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -1,5 +1,6 @@
+ // Metal execution layer of the NVN null device, see nvn_mtl.h.
+ #import <Metal/Metal.h>
++#include "../msl_source_options.h"
+ #import <QuartzCore/CAMetalLayer.h>
+ #import <QuartzCore/CAMetalDisplayLink.h>
+ #import <MetalFX/MetalFX.h>
+@@ -3825,7 +3826,7 @@ static id<MTLLibrary> lib_from_file(NSString *path, NSError **err) {
+     // once and the game does not compile anything again. Without this every library is rejected as "Invalid library file".
+     if (m != MAP_FAILED && len >= 4 && memcmp(m, "MTLB", 4) != 0) {
+         NSString *src = [[NSString alloc] initWithBytes:m length:len encoding:NSUTF8StringEncoding];
+-        id<MTLLibrary> lib = src ? [g_dev newLibraryWithSource:src options:nil error:err] : nil;
++        id<MTLLibrary> lib = src ? [g_dev newLibraryWithSource:src options:dm_msl_source_options() error:err] : nil;
+         if (!lib && err) *err = [NSError errorWithDomain:@"dm" code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"not a compiled library and not readable source: %@", path]}];
+         return lib;
+     }
+@@ -6074,7 +6075,7 @@ static id<MTLFunction> learn_fn(NvShader *fs, unsigned mask) {
+     free(w);
+     if (!t2) { MLOG("[RED] shader %s: the rewritten source is not text", fs->key); return nil; }
+     NSError *ce = nil;
+-    id<MTLLibrary> lib = [g_dev newLibraryWithSource:t2 options:nil error:&ce];   // the same call dm_shader_prep makes: the cache answers at once
++    id<MTLLibrary> lib = [g_dev newLibraryWithSource:t2 options:dm_msl_source_options() error:&ce];   // the same contract as preparation
+     if (!lib) { MLOG("[RED] shader %s: the rewritten source does not compile: %s", fs->key, ce.localizedDescription.UTF8String); return nil; }
+     id<MTLFunction> fn = fn4_note([lib newFunctionWithName:fs->ventry], lib, fs->ventry, nil);
+     if (!fn) { MLOG("[RED] shader %s: the rewritten source has no %s", fs->key, fs->ventry.UTF8String); return nil; }
+diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
+index e36a062..fa21b4a 100644
+--- a/dm/gfx/vk/hle_vk.m
++++ b/dm/gfx/vk/hle_vk.m
+@@ -19,6 +19,7 @@
+ #include <vulkan/vulkan_core.h>
+ #include <vulkan/vulkan_vi.h>
+ #import <Metal/Metal.h>
++#include "../msl_source_options.h"
+ #include <CommonCrypto/CommonDigest.h>
+ #include <mach-o/getsect.h>
+ #include <mach-o/ldsyms.h>
+@@ -188,7 +189,7 @@ static id<MTLFunction> sh_src_fn(const char *key, int variant) {
+         NSString *txt = [NSString stringWithContentsOfFile:p encoding:NSUTF8StringEncoding error:nil];
+         if (!txt) { snprintf(g_srcwhy, sizeof g_srcwhy, "%s cannot be read", p.UTF8String); return nil; }
+         NSError *err = nil;
+-        lib = [g_dev newLibraryWithSource:txt options:nil error:&err];
++        lib = [g_dev newLibraryWithSource:txt options:dm_msl_source_options() error:&err];
+         if (!lib) { snprintf(g_srcwhy, sizeof g_srcwhy, "%s does not compile: %s", p.lastPathComponent.UTF8String, err.localizedDescription.UTF8String); return nil; }
+         cache[k] = lib;
+     }
+diff --git a/dm/host/loader.c b/dm/host/loader.c
+index b52f580..9346c74 100644
+--- a/dm/host/loader.c
++++ b/dm/host/loader.c
+@@ -525,6 +525,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
+ // game files. The section names are the same as in the embedded approach (gen_embed.py), so only the image header to read them from changes.
+ #include <dlfcn.h>
+ #include <mach-o/dyld.h>
++#include "shell_module_name.h"
+ static const struct mach_header_64 *shell_image_quiet(const char **why) {
+     static const struct mach_header_64 *mh; static const char *cached;
+     if (mh) return mh;
+@@ -562,8 +563,8 @@ int dm_shell_modules(const char **out, int max) {
+             for (uint32_t k = 0; k < sc->nsects && n < 16; k++, s++) {
+                 size_t l = strnlen(s->sectname, 16);
+                 if (l < 7 || strncmp(s->sectname, "__dm", 4) || l + sizeof(struct segment_command_64) > lc->cmdsize) continue;
+-                if (s->sectname[l - 2] != 'x' || s->sectname[l - 1] != '0') continue;
+-                size_t nl = l - 6; if (nl > 16) continue;
++                char parsed[17]; size_t nl = dm_shell_module_name(s->sectname, parsed);
++                if (!nl) continue;
+                 int dup = 0; for (int j = 0; j < n; j++) if (!strncmp(ptrs[j], s->sectname + 4, nl) && !ptrs[j][nl]) dup = 1;
+                 if (dup) continue;
+                 memcpy(store[n], s->sectname + 4, nl); store[n][nl] = 0; ptrs[n] = store[n]; n++;
+@@ -571,6 +572,7 @@ int dm_shell_modules(const char **out, int max) {
+         }
+         p += lc->cmdsize;
+     }
++    fprintf(stderr, "boot: shell NRO table v1, %d boot modules\n", n);
+     cached = n; int k = n < max ? n : max; for (int i = 0; i < k; i++) out[i] = ptrs[i];
+     return k;
+ }
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index deb5679..4e0de0e 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -92,7 +92,11 @@ static void phone_motion_start(UIView *body) {
+     if (!g_motion.deviceMotionAvailable) { LOG("front end: no device motion, the phone's gyro is not used"); return; }
+     LOG("front end: the phone's gyro drives the controller's six-axis sensor %s", mode < 0 ? "while no controller supplies fresh motion" : "always (DM_PHONE_MOTION=1)");
+     g_motion.deviceMotionUpdateInterval = 1.0 / 100;
++#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270000
+     if (@available(iOS 27.0, *)) { g_motion.deviceMotionBody = body; g_motion_body = YES; LOG("front end: the phone's motion comes in the pad view's frame (deviceMotionBody)"); }
++#else
++    (void)body;   // iPadOS 26 uses the existing device-frame motion conversion.
++#endif
+     NSOperationQueue *q = [NSOperationQueue new]; q.maxConcurrentOperationCount = 1;
+     [g_motion startDeviceMotionUpdatesToQueue:q withHandler:^(CMDeviceMotion *d, NSError *err) {
+         (void)err; if (!d) return;

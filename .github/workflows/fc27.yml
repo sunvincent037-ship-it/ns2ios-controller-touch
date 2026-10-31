@@ -1,0 +1,80 @@
+name: Build FC27 game-free unsigned runtime
+
+on:
+  push:
+    branches: [fc27-ios-20261031]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: payload
+      - uses: actions/checkout@v4
+        with:
+          repository: xinerqu/ns2ios-shell
+          ref: d3c0c601b46f8d51a3a15bf09ff74ecb4581aefd
+          path: source
+      - name: Apply only the reviewed runtime source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C source apply --check "$GITHUB_WORKSPACE/payload/fc27-cloud/runtime.patch"
+          git -C source apply "$GITHUB_WORKSPACE/payload/fc27-cloud/runtime.patch"
+          cp -R payload/fc27-cloud/overlay/. source/
+          clang -std=c11 -Wall -Wextra -Werror -Isource/dm/host payload/fc27-cloud/t_shell_module_name.c -o "$RUNNER_TEMP/test-shell"
+          "$RUNNER_TEMP/test-shell"
+      - name: Verify shader options and bounded preparation
+        working-directory: source
+        run: |
+          python3 -m unittest dm.tools.tests.test_msl_source_options dm.tools.tests.test_shader_prep_policy -v
+      - name: Install ordinary build dependencies
+        run: |
+          brew install xcodegen
+          python3 -m venv "$RUNNER_TEMP/font-venv"
+          "$RUNNER_TEMP/font-venv/bin/python" -m pip install fonttools
+      - name: Build the game-free shell
+        working-directory: source
+        env:
+          DM_ROOT: ${{ runner.temp }}/fc27-runtime
+          FONT_PY: ${{ runner.temp }}/font-venv/bin/python
+        run: bash dm/ios/tools/shell_build.sh
+      - name: Verify compiled identity and attach provenance
+        env:
+          PAYLOAD_COMMIT: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          shell = root / 'fc27-runtime/build/shell/nxnative-shell-build-input.zip'
+          with zipfile.ZipFile(shell, 'a') as z:
+              host = z.read('Payload/DmIOS.app/DmIOS')
+              assert b'shell NRO table v1' in host
+              assert b'relaxed-invariant-v1' in host
+              assert not any('romfs' in n.lower() or 'Guest.framework' in n for n in z.namelist())
+              stamp = {'payload_commit': os.environ['PAYLOAD_COMMIT'],
+                       'base_source': 'd3c0c601b46f8d51a3a15bf09ff74ecb4581aefd',
+                       'host_sha256': hashlib.sha256(host).hexdigest(),
+                       'nro_layout': 'table-v1', 'shader_options': 'relaxed-invariant-v1',
+                       'shader_preparation_workers_max': 2, 'device_acceptance': 'pending'}
+              z.writestr('Payload/DmIOS.app/dm/fc27_runtime.json', json.dumps(stamp, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fc27-game-free-shell
+          path: ${{ runner.temp }}/fc27-runtime/build/shell/nxnative-shell-build-input.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fc27-build-logs
+          path: ${{ runner.temp }}/fc27-runtime/build/shell/*.log
+          if-no-files-found: ignore
