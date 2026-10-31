@@ -50,6 +50,8 @@ jobs:
           cp -R payload/fc27-cloud/overlay/. source/
           clang -std=c11 -Wall -Wextra -Werror -Isource/dm/host payload/fc27-cloud/t_shell_module_name.c -o "$RUNNER_TEMP/test-shell"
           "$RUNNER_TEMP/test-shell"
+          clang -std=c11 -Wall -Wextra -Werror -Isource/dm/host source/dm/host/tests/t_native_display.c -lm -o "$RUNNER_TEMP/test-display"
+          "$RUNNER_TEMP/test-display"
       - name: Verify shader options and bounded preparation
         working-directory: source
         run: |
@@ -77,11 +79,13 @@ jobs:
               host = z.read('Payload/DmIOS.app/DmIOS')
               assert b'shell NRO table v1' in host
               assert b'relaxed-invariant-v1' in host
+              assert b'native-display-v1' in host
               assert not any('romfs' in n.lower() or 'Guest.framework' in n for n in z.namelist())
               stamp = {'payload_commit': os.environ['PAYLOAD_COMMIT'],
                        'base_source': 'd3c0c601b46f8d51a3a15bf09ff74ecb4581aefd',
                        'host_sha256': hashlib.sha256(host).hexdigest(),
                        'nro_layout': 'table-v1', 'shader_options': 'relaxed-invariant-v1',
+                       'native_display': 'oe-resolution-v1 (opt-in, engine/device acceptance pending)',
                        'shader_preparation_workers_max': 2, 'device_acceptance': 'pending'}
               z.writestr('Payload/DmIOS.app/dm/fc27_runtime.json', json.dumps(stamp, indent=2))
           PY

@@ -69,6 +69,49 @@ index e36a062..fa21b4a 100644
          if (!lib) { snprintf(g_srcwhy, sizeof g_srcwhy, "%s does not compile: %s", p.lastPathComponent.UTF8String, err.localizedDescription.UTF8String); return nil; }
          cache[k] = lib;
      }
+diff --git a/dm/host/hle_oe.c b/dm/host/hle_oe.c
+index bd3d29e..3ac2d75 100644
+--- a/dm/host/hle_oe.c
++++ b/dm/host/hle_oe.c
+@@ -2,10 +2,24 @@
+ // oe::Initialize is in hle_sdkinit.c, not here.
+ // Environment switches: DM_OPMODE=0 handheld / 1 console (default: the profile's op_mode, console unless set; console corresponds to the console-mode render profile); DM_LANG=language code (default en-US; the iOS app sets it from the IPA's DMLanguage, main.m).
+ #include "hle.h"
++#include "native_display.h"
+ 
+ // The operation mode is runtime state (the front end can change it: iOS overheat downgrade switches to handheld): the single source is here, taken once from DM_OPMODE at startup, the environment variable is not read again afterwards
+ #include <stdatomic.h>
+ static _Atomic int g_opmode = -1;
++static _Atomic uint32_t g_native_display;
++void dm_native_display_publish(int width, int height) {
++    if (!dm_display_valid(width, height)) return;
++    uint32_t value = (uint32_t)width | (uint32_t)height << 16;
++    uint32_t old = atomic_exchange(&g_native_display, value);
++    if (old != value && dm_native_display_requested())
++        LOG("native-display-v1: drawable target %dx%d", width, height);
++}
++int dm_native_display_read(int *width, int *height) {
++    uint32_t value = atomic_load(&g_native_display);
++    *width = (int)(value & 0xffff); *height = (int)(value >> 16);
++    return dm_native_display_requested() && dm_display_valid(*width, *height);
++}
+ int dm_opmode(void) {
+     int m = g_opmode;
+     if (m < 0) { const char *e = getenv("DM_OPMODE"); int v = e ? atoi(e) : DM_GAME_OPMODE; int exp = -1; atomic_compare_exchange_strong(&g_opmode, &exp, v); m = g_opmode; }
+@@ -153,7 +167,12 @@ static unsigned char g_cpu_oc;
+ HLE_FORCE("_ZN2nn2oe21IsCpuOverclockEnabledEv", "CPU overclock state (through apm): what SetCpuOverclockEnabled set, off at start", unsigned, h_oe_CpuOc, void) { return g_cpu_oc; }
+ HLE_FORCE("_ZN2nn2oe22SetCpuOverclockEnabledEb", "CPU overclock switch (through apm); the host does not scale clocks", void, h_oe_SetCpuOc, unsigned on) { g_cpu_oc = on & 0xff; }
+ HLE_FORCE("_ZN2nn2oe27GetDefaultDisplayResolutionEPiS1_", "default display resolution: 1920x1080 docked, 1280x720 handheld", void, h_oe_DefRes, int *w, int *h) {
+-    int con = opmode() == 1; if (w) *w = con ? 1920 : 1280; if (h) *h = con ? 1080 : 720;
++    int con = opmode() == 1, native_w = 0, native_h = 0, width, height;
++    int enabled = dm_native_display_read(&native_w, &native_h);
++    int native = dm_display_select(enabled, native_w, native_h, con ? 1920 : 1280, con ? 1080 : 720, &width, &height);
++    if (w) *w = width; if (h) *h = height;
++    static int noted;
++    if (native && !noted++) LOG("native-display-v1: oe default resolution %dx%d", width, height);
+ }
+ HLE_FORCE("_ZN2nn2oe38GetDefaultDisplayResolutionChangeEventEPNS_2os11SystemEventE", "default display resolution change event: bound, never signaled (the operation mode notification carries the change)",
+           void, h_oe_DefResEv, void *ev) { hle_bind_system_event(ev, 0); }
 diff --git a/dm/host/loader.c b/dm/host/loader.c
 index b52f580..9346c74 100644
 --- a/dm/host/loader.c
@@ -101,10 +144,18 @@ index b52f580..9346c74 100644
      return k;
  }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index deb5679..4e0de0e 100644
+index deb5679..49e28fe 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -92,7 +92,11 @@ static void phone_motion_start(UIView *body) {
+@@ -16,6 +16,7 @@
+ #import <UIKit/UIKit.h>
+ #import <GameController/GameController.h>
+ #import <CoreMotion/CoreMotion.h>
++#include "native_display.h"
+ #import <CoreText/CoreText.h>
+ #include <pthread.h>
+ #include "dm.h"
+@@ -92,7 +93,11 @@ static void phone_motion_start(UIView *body) {
      if (!g_motion.deviceMotionAvailable) { LOG("front end: no device motion, the phone's gyro is not used"); return; }
      LOG("front end: the phone's gyro drives the controller's six-axis sensor %s", mode < 0 ? "while no controller supplies fresh motion" : "always (DM_PHONE_MOTION=1)");
      g_motion.deviceMotionUpdateInterval = 1.0 / 100;
@@ -116,3 +167,100 @@ index deb5679..4e0de0e 100644
      NSOperationQueue *q = [NSOperationQueue new]; q.maxConcurrentOperationCount = 1;
      [g_motion startDeviceMotionUpdatesToQueue:q withHandler:^(CMDeviceMotion *d, NSError *err) {
          (void)err; if (!d) return;
+@@ -325,7 +330,10 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
+ - (void)pushGame {
+     CGRect b = self.bounds; CGFloat w = b.size.width, h = b.size.height;
+     if (w <= 0 || h <= 0) return;
+-    if (w / h > 16.0 / 9.0) w = h * 16.0 / 9.0; else h = w * 9.0 / 16.0;
++    int pixel_w = 0, pixel_h = 0;
++    if (!dm_native_display_read(&pixel_w, &pixel_h)) {
++        if (w / h > 16.0 / 9.0) w = h * 16.0 / 9.0; else h = w * 9.0 / 16.0;
++    }
+     CGFloat x0 = (b.size.width - w) / 2, y0 = (b.size.height - h) / 2;
+     dm_touch t[16]; int n = 0;
+     for (int i = 0; i < 16; i++) if (_game[i]) {
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index 7491bb5..d687c9d 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -7,6 +7,7 @@
+ #include <errno.h>
+ #include "front.h"
+ #include "hle.h"
++#include "native_display.h"
+ #include "dm.h"
+ #include "haptics_apple.h"
+ #include "save_sync.h"
+@@ -92,8 +93,12 @@ static void launcher_done(void) { [g_root startGame]; }
+ - (void)viewDidLayoutSubviews {
+     [super viewDidLayoutSubviews];
+     CGRect b = self.view.bounds; if (!self.game) return;
+-    CGFloat w = b.size.width, h = b.size.height;   // Fit 16:9 into the whole screen
+-    if (w / h > 16.0 / 9.0) w = h * 16.0 / 9.0; else h = w * 9.0 / 16.0;
++    int pixel_w = 0, pixel_h = 0;
++    if (dm_display_pixels(b.size.width, b.size.height, UIScreen.mainScreen.nativeScale, &pixel_w, &pixel_h))
++        dm_native_display_publish(pixel_w, pixel_h);
++    int native = dm_native_display_read(&pixel_w, &pixel_h);
++    CGFloat w = b.size.width, h = b.size.height;
++    if (!native) { if (w / h > 16.0 / 9.0) w = h * 16.0 / 9.0; else h = w * 9.0 / 16.0; }
+     self.game.frame = CGRectMake(floor((b.size.width - w) / 2), floor((b.size.height - h) / 2), w, h);
+     if (self.fps) {   // the top row's free stretch: right of DmGamepad.m's L3 key (102 + 17 of its units from the safe edge), level with − / + (22 units down); u is its unit
+         CGRect s = UIEdgeInsetsInsetRect(b, self.view.safeAreaInsets); CGFloat u = MIN(b.size.height / 430.0, 1.3);
+diff --git a/dm/host/native_display.h b/dm/host/native_display.h
+new file mode 100644
+--- /dev/null
++++ b/dm/host/native_display.h
+@@ -0,0 +1,27 @@
++#pragma once
++#include <math.h>
++#include <stdlib.h>
++
++static inline int dm_display_valid(int width, int height) {
++    return width >= 64 && height >= 64 && width <= 16384 && height <= 16384;
++}
++static inline int dm_display_pixels(double width, double height, double scale, int *out_width, int *out_height) {
++    double w = width * scale, h = height * scale;
++    if (!isfinite(w) || !isfinite(h) || !isfinite(scale) || scale <= 0 ||
++        w < 64 || h < 64 || w > 16384 || h > 16384) return 0;
++    *out_width = (int)lround(w); *out_height = (int)lround(h);
++    return dm_display_valid(*out_width, *out_height);
++}
++static inline int dm_display_select(int enabled, int native_width, int native_height,
++                                    int legacy_width, int legacy_height, int *out_width, int *out_height) {
++    int native = enabled && dm_display_valid(native_width, native_height);
++    *out_width = native ? native_width : legacy_width;
++    *out_height = native ? native_height : legacy_height;
++    return native;
++}
++static inline int dm_native_display_requested(void) {
++    const char *value = getenv("DM_NATIVE_DISPLAY");
++    return value && atoi(value) != 0;
++}
++void dm_native_display_publish(int width, int height);
++int dm_native_display_read(int *width, int *height);
+diff --git a/dm/host/tests/t_native_display.c b/dm/host/tests/t_native_display.c
+new file mode 100644
+--- /dev/null
++++ b/dm/host/tests/t_native_display.c
+@@ -0,0 +1,21 @@
++#include <assert.h>
++#include <math.h>
++#include "native_display.h"
++
++int main(void) {
++    int w = 0, h = 0;
++    assert(dm_display_pixels(1210, 834, 2, &w, &h));
++    assert(w == 2420 && h == 1668);
++    assert(dm_display_select(1, w, h, 1920, 1080, &w, &h));
++    assert(w == 2420 && h == 1668);
++    assert(!dm_display_select(0, 2420, 1668, 1920, 1080, &w, &h));
++    assert(w == 1920 && h == 1080);
++    assert(!dm_display_select(1, 0, 1668, 1280, 720, &w, &h));
++    assert(w == 1280 && h == 720);
++    assert(!dm_display_pixels(1210, 834, NAN, &w, &h));
++    assert(!dm_display_pixels(0, 834, 2, &w, &h));
++    assert(!dm_display_pixels(100000, 834, 2, &w, &h));
++    assert(dm_display_pixels(1376, 1032, 2, &w, &h));
++    assert(w == 2752 && h == 2064);
++    return 0;
++}
